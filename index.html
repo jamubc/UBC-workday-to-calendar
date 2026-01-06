@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UBC Workday to Calendar</title>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
     <style>
         * {
             box-sizing: border-box;
@@ -21,6 +22,14 @@
 
         h1 {
             margin-bottom: 8px;
+        }
+
+        h2 {
+            margin: 30px 0 15px 0;
+            font-size: 18px;
+            font-weight: 600;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 8px;
         }
 
         .info {
@@ -52,14 +61,14 @@
             white-space: pre-wrap;
             font-family: monospace;
             font-size: 11px;
-            max-height: 150px;
+            max-height: 120px;
             overflow-y: auto;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 15px;
             font-size: 13px;
         }
 
@@ -90,17 +99,10 @@
             max-width: 200px;
         }
 
-        td:nth-child(3) {
-            white-space: nowrap;
-        }
-
-        td:nth-child(4) {
-            white-space: nowrap;
-        }
-
+        td:nth-child(3),
+        td:nth-child(4),
         td:nth-child(5) {
             white-space: nowrap;
-            font-size: 12px;
         }
 
         .error {
@@ -109,6 +111,36 @@
 
         .success {
             color: #060;
+        }
+
+        #calendar {
+            margin-top: 15px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            background: #fff;
+        }
+
+        #calendarSection {
+            display: none;
+        }
+
+        /* Minimal FullCalendar overrides */
+        .fc {
+            font-size: 12px;
+        }
+
+        .fc-toolbar-title {
+            font-size: 16px !important;
+        }
+
+        .fc-button {
+            padding: 4px 10px !important;
+            font-size: 12px !important;
+        }
+
+        .fc-event {
+            font-size: 11px;
+            padding: 2px 4px;
         }
     </style>
 </head>
@@ -124,39 +156,70 @@
 
     <div id="status">Waiting for file...</div>
 
-    <table id="preview" style="display:none;">
-        <thead>
-            <tr>
-                <th>Course</th>
-                <th>Type</th>
-                <th>Days</th>
-                <th>Time</th>
-                <th>Dates</th>
-                <th>Location</th>
-                <th>Note</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
+    <section id="tableSection" style="display:none;">
+        <h2>Parsed Events</h2>
+        <table id="preview">
+            <thead>
+                <tr>
+                    <th>Course</th>
+                    <th>Type</th>
+                    <th>Days</th>
+                    <th>Time</th>
+                    <th>Dates</th>
+                    <th>Location</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <section id="calendarSection">
+        <h2>Weekly Preview</h2>
+        <div id="calendar"></div>
+    </section>
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <script>
         const TIMEZONE = 'America/Vancouver';
         let parsedEvents = [];
+        let calendar = null;
 
         const fileInput = document.getElementById('fileInput');
         const parseBtn = document.getElementById('parseBtn');
         const downloadBtn = document.getElementById('downloadBtn');
         const status = document.getElementById('status');
-        const preview = document.getElementById('preview');
-        const tbody = preview.querySelector('tbody');
+        const tableSection = document.getElementById('tableSection');
+        const calendarSection = document.getElementById('calendarSection');
+        const tbody = document.querySelector('#preview tbody');
+
+        // Initialize FullCalendar
+        document.addEventListener('DOMContentLoaded', function () {
+            calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+                initialView: 'timeGridWeek',
+                slotMinTime: '07:00:00',
+                slotMaxTime: '21:00:00',
+                weekends: false,
+                allDaySlot: false,
+                height: 'auto',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'timeGridWeek,timeGridDay'
+                },
+                events: []
+            });
+            calendar.render();
+        });
 
         fileInput.addEventListener('change', () => {
             parseBtn.disabled = !fileInput.files.length;
             downloadBtn.disabled = true;
             parsedEvents = [];
             tbody.innerHTML = '';
-            preview.style.display = 'none';
+            tableSection.style.display = 'none';
+            calendarSection.style.display = 'none';
+            if (calendar) calendar.removeAllEvents();
             status.textContent = 'File selected. Click "Parse File".';
         });
 
@@ -167,6 +230,7 @@
             status.textContent = 'Parsing...\n';
             parsedEvents = [];
             tbody.innerHTML = '';
+            if (calendar) calendar.removeAllEvents();
 
             try {
                 const file = fileInput.files[0];
@@ -181,6 +245,9 @@
 
                 let successCount = 0;
                 let skipCount = 0;
+                const colors = ['#3788d8', '#28a745', '#dc3545', '#fd7e14', '#6f42c1', '#20c997', '#e83e8c', '#17a2b8'];
+                let colorIdx = 0;
+                const courseColors = {};
 
                 for (let i = 0; i < rows.length; i++) {
                     const row = rows[i];
@@ -201,7 +268,6 @@
                         continue;
                     }
 
-                    // Parse UBC format: may have multiple patterns separated by newlines
                     const patterns = parseUBCMeetingPatterns(meetingPatterns);
 
                     if (patterns.length === 0) {
@@ -210,9 +276,15 @@
                         continue;
                     }
 
+                    // Assign color per course
+                    const courseKey = courseListing.substring(0, 20);
+                    if (!courseColors[courseKey]) {
+                        courseColors[courseKey] = colors[colorIdx % colors.length];
+                        colorIdx++;
+                    }
+
                     for (const p of patterns) {
                         if (!p.startDate || !p.endDate || !p.startTime || !p.endTime || !p.days.length) {
-                            log(`  Incomplete pattern skipped: days=${p.days}, time=${p.startTime}`);
                             continue;
                         }
 
@@ -227,12 +299,14 @@
                             endDate: p.endDate,
                             location: p.location,
                             isAlternate: p.isAlternate,
-                            instructor: instructor
+                            instructor: instructor,
+                            color: courseColors[courseKey]
                         };
 
                         parsedEvents.push(event);
                         successCount++;
 
+                        // Add to table
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${esc(event.course)}</td>
@@ -244,15 +318,24 @@
                             <td>${event.isAlternate ? 'Alt weeks' : ''}</td>
                         `;
                         tbody.appendChild(tr);
+
+                        // Add to calendar
+                        addToCalendar(event);
                     }
                 }
 
-                log(`\nParsed: ${successCount} events, Skipped: ${skipCount} rows`);
+                log(`Parsed: ${successCount} events, Skipped: ${skipCount} rows`);
 
                 if (successCount > 0) {
-                    preview.style.display = 'table';
+                    tableSection.style.display = 'block';
+                    calendarSection.style.display = 'block';
                     downloadBtn.disabled = false;
                     status.className = 'success';
+                    // Go to the first event's date
+                    if (parsedEvents.length > 0) {
+                        const firstDate = parsedEvents[0].startDate;
+                        calendar.gotoDate(new Date(firstDate.year, firstDate.month - 1, firstDate.day));
+                    }
                 } else {
                     status.className = 'error';
                 }
@@ -264,71 +347,81 @@
             }
         }
 
+        function addToCalendar(e) {
+            // Generate individual occurrences to match ICS exactly
+            const dayNumMap = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+            const targetDays = e.days.map(d => dayNumMap[d]);
+
+            const startTime = `${String(e.startTime.hours).padStart(2, '0')}:${String(e.startTime.minutes).padStart(2, '0')}:00`;
+            const endTime = `${String(e.endTime.hours).padStart(2, '0')}:${String(e.endTime.minutes).padStart(2, '0')}:00`;
+            const title = e.format ? `${e.course} (${e.format.substring(0, 3)})` : e.course;
+
+            const startDate = new Date(e.startDate.year, e.startDate.month - 1, e.startDate.day);
+            const endDate = new Date(e.endDate.year, e.endDate.month - 1, e.endDate.day);
+
+            // Find the first occurrence (first matching day on or after startDate)
+            let firstOccurrence = new Date(startDate);
+            while (!targetDays.includes(firstOccurrence.getDay()) && firstOccurrence <= endDate) {
+                firstOccurrence.setDate(firstOccurrence.getDate() + 1);
+            }
+
+            // Iterate through each day from start to end
+            let current = new Date(startDate);
+            while (current <= endDate) {
+                if (targetDays.includes(current.getDay())) {
+                    // Calculate week number since first occurrence
+                    const daysSinceFirst = Math.floor((current - firstOccurrence) / (24 * 60 * 60 * 1000));
+                    const weekNum = Math.floor(daysSinceFirst / 7);
+
+                    // For alternate weeks (INTERVAL=2), only show on even weeks (0, 2, 4...)
+                    const shouldShow = !e.isAlternate || (weekNum % 2 === 0);
+
+                    if (shouldShow) {
+                        const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                        calendar.addEvent({
+                            title: title,
+                            start: `${dateStr}T${startTime}`,
+                            end: `${dateStr}T${endTime}`,
+                            color: e.color,
+                            extendedProps: { location: e.location }
+                        });
+                    }
+                }
+                current.setDate(current.getDate() + 1);
+            }
+        }
+
         function log(msg) {
             status.textContent += msg + '\n';
         }
 
-        /**
-         * Parse UBC Meeting Patterns.
-         * Format: "2026-01-05 - 2026-02-11 | Mon Wed | 9:30 a.m. - 11:00 a.m. | UBCO | Arts Building (ART) | Floor: 3 | Room: 376"
-         * Multiple patterns may be separated by newlines.
-         */
         function parseUBCMeetingPatterns(str) {
             const results = [];
-
-            // Split by newlines to handle multiple patterns
             const lines = str.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
-
             for (const line of lines) {
                 const parsed = parseSinglePattern(line);
-                if (parsed) {
-                    results.push(parsed);
-                }
+                if (parsed) results.push(parsed);
             }
-
             return results;
         }
 
-        /**
-         * Parse a single pattern line:
-         * "2026-01-05 - 2026-02-11 | Mon Wed | 9:30 a.m. - 11:00 a.m. | UBCO | Arts Building (ART) | Floor: 3 | Room: 376"
-         */
         function parseSinglePattern(line) {
             const parts = line.split('|').map(p => p.trim());
+            if (parts.length < 3) return null;
 
-            if (parts.length < 3) {
-                log(`  Pattern has only ${parts.length} parts: ${line.substring(0, 50)}`);
-                return null;
-            }
-
-            // Part 0: Date range "2026-01-05 - 2026-02-11"
             const dateRange = parseDateRange(parts[0]);
-            if (!dateRange.start || !dateRange.end) {
-                log(`  Could not parse date range: ${parts[0]}`);
-                return null;
-            }
+            if (!dateRange.start || !dateRange.end) return null;
 
-            // Part 1: Days "Mon Wed" or "Wed (Alternate weeks)"
             const daysPart = parts[1];
             const isAlternate = daysPart.toLowerCase().includes('alternate');
             const days = parseDays(daysPart.replace(/\(alternate\s*weeks?\)/gi, ''));
+            if (days.length === 0) return null;
 
-            if (days.length === 0) {
-                log(`  Could not parse days: ${parts[1]}`);
-                return null;
-            }
-
-            // Part 2: Time "9:30 a.m. - 11:00 a.m."
             const times = parseTimeRange(parts[2]);
-            if (!times.start || !times.end) {
-                log(`  Could not parse time: ${parts[2]}`);
-                return null;
-            }
+            if (!times.start || !times.end) return null;
 
-            // Remaining parts: Location info (UBCO | Building | Floor | Room)
             let location = '';
             if (parts.length >= 5) {
-                // parts[3] is usually campus (UBCO), parts[4] is building
                 const building = parts[4] || '';
                 const roomPart = parts.find(p => p.toLowerCase().startsWith('room'));
                 const room = roomPart ? roomPart.replace(/room:\s*/i, 'Rm ') : '';
@@ -336,23 +429,16 @@
             }
 
             return {
-                startDate: dateRange.start,
-                endDate: dateRange.end,
-                days: days,
-                startTime: times.start,
-                endTime: times.end,
-                location: location,
-                isAlternate: isAlternate
+                startDate: dateRange.start, endDate: dateRange.end,
+                days: days, startTime: times.start, endTime: times.end,
+                location: location, isAlternate: isAlternate
             };
         }
 
         function parseDateRange(str) {
             const match = str.match(/(\d{4}-\d{2}-\d{2})\s*[-–]\s*(\d{4}-\d{2}-\d{2})/);
             if (!match) return { start: null, end: null };
-            return {
-                start: parseISODate(match[1]),
-                end: parseISODate(match[2])
-            };
+            return { start: parseISODate(match[1]), end: parseISODate(match[2]) };
         }
 
         function parseISODate(str) {
@@ -362,19 +448,9 @@
         }
 
         function parseDays(str) {
-            const dayMap = {
-                'mo': 'MO', 'mon': 'MO', 'monday': 'MO',
-                'tu': 'TU', 'tue': 'TU', 'tuesday': 'TU',
-                'we': 'WE', 'wed': 'WE', 'wednesday': 'WE',
-                'th': 'TH', 'thu': 'TH', 'thursday': 'TH',
-                'fr': 'FR', 'fri': 'FR', 'friday': 'FR',
-                'sa': 'SA', 'sat': 'SA', 'saturday': 'SA',
-                'su': 'SU', 'sun': 'SU', 'sunday': 'SU'
-            };
-
+            const dayMap = { 'mo': 'MO', 'mon': 'MO', 'tu': 'TU', 'tue': 'TU', 'we': 'WE', 'wed': 'WE', 'th': 'TH', 'thu': 'TH', 'fr': 'FR', 'fri': 'FR', 'sa': 'SA', 'sat': 'SA', 'su': 'SU', 'sun': 'SU' };
             const days = [];
             const tokens = str.toLowerCase().split(/[\s\/,]+/);
-
             for (const token of tokens) {
                 for (const [key, val] of Object.entries(dayMap)) {
                     if (token === key || token.startsWith(key)) {
@@ -387,15 +463,10 @@
         }
 
         function parseTimeRange(str) {
-            // Handle "a.m." and "p.m." with periods
             const normalized = str.replace(/a\.m\./gi, 'AM').replace(/p\.m\./gi, 'PM');
             const match = normalized.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[-–]\s*(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
             if (!match) return { start: null, end: null };
-
-            return {
-                start: normalizeTime(match[1], match[2], match[3]),
-                end: normalizeTime(match[4], match[5], match[6])
-            };
+            return { start: normalizeTime(match[1], match[2], match[3]), end: normalizeTime(match[4], match[5], match[6]) };
         }
 
         function normalizeTime(h, m, period) {
@@ -409,34 +480,19 @@
             return { hours, minutes };
         }
 
-        function formatCourse(name) {
-            return name.replace(/\s*[-–]\s*/, ' ').substring(0, 50);
-        }
-
+        function formatCourse(name) { return name.replace(/\s*[-–]\s*/, ' ').substring(0, 50); }
         function fmtTime(t) {
             if (!t) return '?';
-            let h = t.hours;
-            const m = String(t.minutes).padStart(2, '0');
+            let h = t.hours; const m = String(t.minutes).padStart(2, '0');
             const p = h >= 12 ? 'PM' : 'AM';
-            if (h > 12) h -= 12;
-            if (h === 0) h = 12;
+            if (h > 12) h -= 12; if (h === 0) h = 12;
             return `${h}:${m} ${p}`;
         }
-
-        function fmtDate(d) {
-            if (!d) return '?';
-            return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
-        }
-
-        function esc(s) {
-            const div = document.createElement('div');
-            div.textContent = s || '';
-            return div.innerHTML;
-        }
+        function fmtDate(d) { return d ? `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}` : '?'; }
+        function esc(s) { const div = document.createElement('div'); div.textContent = s || ''; return div.innerHTML; }
 
         function downloadICS() {
             if (!parsedEvents.length) return;
-
             let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UBC Workday to Calendar//EN\r\nCALSCALE:GREGORIAN\r\n';
             ics += 'BEGIN:VTIMEZONE\r\nTZID:America/Vancouver\r\n';
             ics += 'BEGIN:DAYLIGHT\r\nTZOFFSETFROM:-0800\r\nTZOFFSETTO:-0700\r\nTZNAME:PDT\r\nDTSTART:19700308T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU\r\nEND:DAYLIGHT\r\n';
@@ -449,12 +505,8 @@
                 const dtend = fmtICSDateTime(firstDate, e.endTime);
                 const until = fmtICSDate(e.endDate) + 'T235959Z';
                 const uid = Math.random().toString(36).substring(2) + '@ubc-calendar';
-
                 let rrule = `FREQ=WEEKLY;BYDAY=${e.days.join(',')};UNTIL=${until}`;
-                if (e.isAlternate) {
-                    rrule = `FREQ=WEEKLY;INTERVAL=2;BYDAY=${e.days.join(',')};UNTIL=${until}`;
-                }
-
+                if (e.isAlternate) rrule = `FREQ=WEEKLY;INTERVAL=2;BYDAY=${e.days.join(',')};UNTIL=${until}`;
                 const summary = e.format ? `${e.course} (${e.format})` : e.course;
 
                 ics += 'BEGIN:VEVENT\r\n';
@@ -468,15 +520,11 @@
                 if (e.instructor) ics += `DESCRIPTION:Instructor: ${escICS(e.instructor)}\r\n`;
                 ics += 'END:VEVENT\r\n';
             }
-
             ics += 'END:VCALENDAR\r\n';
 
             const blob = new Blob([ics], { type: 'text/calendar' });
             const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'ubc_schedule.ics';
-            a.click();
+            const a = document.createElement('a'); a.href = url; a.download = 'ubc_schedule.ics'; a.click();
             URL.revokeObjectURL(url);
         }
 
@@ -484,7 +532,6 @@
             const dayNum = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
             const targetDays = days.map(d => dayNum[d]);
             const date = new Date(startDate.year, startDate.month - 1, startDate.day);
-
             for (let i = 0; i < 7; i++) {
                 if (targetDays.includes(date.getDay())) {
                     return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() };
@@ -497,14 +544,8 @@
         function fmtICSDateTime(date, time) {
             return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}T${String(time.hours).padStart(2, '0')}${String(time.minutes).padStart(2, '0')}00`;
         }
-
-        function fmtICSDate(date) {
-            return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}`;
-        }
-
-        function escICS(s) {
-            return (s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
-        }
+        function fmtICSDate(date) { return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}`; }
+        function escICS(s) { return (s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
     </script>
 </body>
 
