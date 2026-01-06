@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UBC Workday to Calendar</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 8px;
+        }
+
+        .info {
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        input[type="file"] {
+            margin: 20px 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #status {
+            margin: 20px 0;
+            padding: 12px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 11px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #e8e8e8;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        tr:nth-child(even) {
+            background: #fafafa;
+        }
+
+        tr:hover {
+            background: #f0f0f0;
+        }
+
+        td:first-child {
+            font-weight: 500;
+            max-width: 200px;
+        }
+
+        td:nth-child(3) {
+            white-space: nowrap;
+        }
+
+        td:nth-child(4) {
+            white-space: nowrap;
+        }
+
+        td:nth-child(5) {
+            white-space: nowrap;
+            font-size: 12px;
+        }
+
+        .error {
+            color: #c00;
+        }
+
+        .success {
+            color: #060;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>UBC Workday to Calendar</h1>
+    <p class="info">Upload your Workday Excel export (.xlsx) to convert it to an .ics calendar file.</p>
+
+    <input type="file" id="fileInput" accept=".xlsx,.xls">
+    <br>
+    <button id="parseBtn" disabled>Parse File</button>
+    <button id="downloadBtn" disabled>Download .ics</button>
+
+    <div id="status">Waiting for file...</div>
+
+    <table id="preview" style="display:none;">
+        <thead>
+            <tr>
+                <th>Course</th>
+                <th>Type</th>
+                <th>Days</th>
+                <th>Time</th>
+                <th>Dates</th>
+                <th>Location</th>
+                <th>Note</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script>
+        const TIMEZONE = 'America/Vancouver';
+        let parsedEvents = [];
+
+        const fileInput = document.getElementById('fileInput');
+        const parseBtn = document.getElementById('parseBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const status = document.getElementById('status');
+        const preview = document.getElementById('preview');
+        const tbody = preview.querySelector('tbody');
+
+        fileInput.addEventListener('change', () => {
+            parseBtn.disabled = !fileInput.files.length;
+            downloadBtn.disabled = true;
+            parsedEvents = [];
+            tbody.innerHTML = '';
+            preview.style.display = 'none';
+            status.textContent = 'File selected. Click "Parse File".';
+        });
+
+        parseBtn.addEventListener('click', parseFile);
+        downloadBtn.addEventListener('click', downloadICS);
+
+        async function parseFile() {
+            status.textContent = 'Parsing...\n';
+            parsedEvents = [];
+            tbody.innerHTML = '';
+
+            try {
+                const file = fileInput.files[0];
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                const sheetName = workbook.SheetNames[0];
+                const ws = workbook.Sheets[sheetName];
+                const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+                log(`Found ${rows.length} data rows`);
+
+                let successCount = 0;
+                let skipCount = 0;
+
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+
+                    const courseListing = row['Course Listing'] || '';
+                    const section = row['Section'] || '';
+                    const format = row['Instructional Format'] || '';
+                    const meetingPatterns = row['Meeting Patterns'] || '';
+                    const instructor = row['Instructor'] || '';
+
+                    if (!courseListing || courseListing.toLowerCase().includes('course listing')) {
+                        continue;
+                    }
+
+                    if (!meetingPatterns.trim()) {
+                        skipCount++;
+                        log(`Row ${i + 2}: Skipped (no meeting pattern) - ${courseListing.substring(0, 30)}`);
+                        continue;
+                    }
+
+                    // Parse UBC format: may have multiple patterns separated by newlines
+                    const patterns = parseUBCMeetingPatterns(meetingPatterns);
+
+                    if (patterns.length === 0) {
+                        skipCount++;
+                        log(`Row ${i + 2}: Skipped (parse failed) - ${courseListing.substring(0, 30)}`);
+                        continue;
+                    }
+
+                    for (const p of patterns) {
+                        if (!p.startDate || !p.endDate || !p.startTime || !p.endTime || !p.days.length) {
+                            log(`  Incomplete pattern skipped: days=${p.days}, time=${p.startTime}`);
+                            continue;
+                        }
+
+                        const event = {
+                            course: formatCourse(courseListing),
+                            section: section,
+                            format: format,
+                            days: p.days,
+                            startTime: p.startTime,
+                            endTime: p.endTime,
+                            startDate: p.startDate,
+                            endDate: p.endDate,
+                            location: p.location,
+                            isAlternate: p.isAlternate,
+                            instructor: instructor
+                        };
+
+                        parsedEvents.push(event);
+                        successCount++;
+
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${esc(event.course)}</td>
+                            <td>${esc(event.format)}</td>
+                            <td>${event.days.join(', ')}</td>
+                            <td>${fmtTime(event.startTime)} - ${fmtTime(event.endTime)}</td>
+                            <td>${fmtDate(event.startDate)} to ${fmtDate(event.endDate)}</td>
+                            <td>${esc(event.location)}</td>
+                            <td>${event.isAlternate ? 'Alt weeks' : ''}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    }
+                }
+
+                log(`\nParsed: ${successCount} events, Skipped: ${skipCount} rows`);
+
+                if (successCount > 0) {
+                    preview.style.display = 'table';
+                    downloadBtn.disabled = false;
+                    status.className = 'success';
+                } else {
+                    status.className = 'error';
+                }
+
+            } catch (err) {
+                log('ERROR: ' + err.message);
+                console.error(err);
+                status.className = 'error';
+            }
+        }
+
+        function log(msg) {
+            status.textContent += msg + '\n';
+        }
+
+        /**
+         * Parse UBC Meeting Patterns.
+         * Format: "2026-01-05 - 2026-02-11 | Mon Wed | 9:30 a.m. - 11:00 a.m. | UBCO | Arts Building (ART) | Floor: 3 | Room: 376"
+         * Multiple patterns may be separated by newlines.
+         */
+        function parseUBCMeetingPatterns(str) {
+            const results = [];
+
+            // Split by newlines to handle multiple patterns
+            const lines = str.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
+
+            for (const line of lines) {
+                const parsed = parseSinglePattern(line);
+                if (parsed) {
+                    results.push(parsed);
+                }
+            }
+
+            return results;
+        }
+
+        /**
+         * Parse a single pattern line:
+         * "2026-01-05 - 2026-02-11 | Mon Wed | 9:30 a.m. - 11:00 a.m. | UBCO | Arts Building (ART) | Floor: 3 | Room: 376"
+         */
+        function parseSinglePattern(line) {
+            const parts = line.split('|').map(p => p.trim());
+
+            if (parts.length < 3) {
+                log(`  Pattern has only ${parts.length} parts: ${line.substring(0, 50)}`);
+                return null;
+            }
+
+            // Part 0: Date range "2026-01-05 - 2026-02-11"
+            const dateRange = parseDateRange(parts[0]);
+            if (!dateRange.start || !dateRange.end) {
+                log(`  Could not parse date range: ${parts[0]}`);
+                return null;
+            }
+
+            // Part 1: Days "Mon Wed" or "Wed (Alternate weeks)"
+            const daysPart = parts[1];
+            const isAlternate = daysPart.toLowerCase().includes('alternate');
+            const days = parseDays(daysPart.replace(/\(alternate\s*weeks?\)/gi, ''));
+
+            if (days.length === 0) {
+                log(`  Could not parse days: ${parts[1]}`);
+                return null;
+            }
+
+            // Part 2: Time "9:30 a.m. - 11:00 a.m."
+            const times = parseTimeRange(parts[2]);
+            if (!times.start || !times.end) {
+                log(`  Could not parse time: ${parts[2]}`);
+                return null;
+            }
+
+            // Remaining parts: Location info (UBCO | Building | Floor | Room)
+            let location = '';
+            if (parts.length >= 5) {
+                // parts[3] is usually campus (UBCO), parts[4] is building
+                const building = parts[4] || '';
+                const roomPart = parts.find(p => p.toLowerCase().startsWith('room'));
+                const room = roomPart ? roomPart.replace(/room:\s*/i, 'Rm ') : '';
+                location = (building + ' ' + room).trim();
+            }
+
+            return {
+                startDate: dateRange.start,
+                endDate: dateRange.end,
+                days: days,
+                startTime: times.start,
+                endTime: times.end,
+                location: location,
+                isAlternate: isAlternate
+            };
+        }
+
+        function parseDateRange(str) {
+            const match = str.match(/(\d{4}-\d{2}-\d{2})\s*[-–]\s*(\d{4}-\d{2}-\d{2})/);
+            if (!match) return { start: null, end: null };
+            return {
+                start: parseISODate(match[1]),
+                end: parseISODate(match[2])
+            };
+        }
+
+        function parseISODate(str) {
+            const m = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (!m) return null;
+            return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]) };
+        }
+
+        function parseDays(str) {
+            const dayMap = {
+                'mo': 'MO', 'mon': 'MO', 'monday': 'MO',
+                'tu': 'TU', 'tue': 'TU', 'tuesday': 'TU',
+                'we': 'WE', 'wed': 'WE', 'wednesday': 'WE',
+                'th': 'TH', 'thu': 'TH', 'thursday': 'TH',
+                'fr': 'FR', 'fri': 'FR', 'friday': 'FR',
+                'sa': 'SA', 'sat': 'SA', 'saturday': 'SA',
+                'su': 'SU', 'sun': 'SU', 'sunday': 'SU'
+            };
+
+            const days = [];
+            const tokens = str.toLowerCase().split(/[\s\/,]+/);
+
+            for (const token of tokens) {
+                for (const [key, val] of Object.entries(dayMap)) {
+                    if (token === key || token.startsWith(key)) {
+                        if (!days.includes(val)) days.push(val);
+                        break;
+                    }
+                }
+            }
+            return days;
+        }
+
+        function parseTimeRange(str) {
+            // Handle "a.m." and "p.m." with periods
+            const normalized = str.replace(/a\.m\./gi, 'AM').replace(/p\.m\./gi, 'PM');
+            const match = normalized.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[-–]\s*(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+            if (!match) return { start: null, end: null };
+
+            return {
+                start: normalizeTime(match[1], match[2], match[3]),
+                end: normalizeTime(match[4], match[5], match[6])
+            };
+        }
+
+        function normalizeTime(h, m, period) {
+            let hours = parseInt(h, 10);
+            const minutes = parseInt(m, 10);
+            if (period) {
+                period = period.toUpperCase();
+                if (period === 'PM' && hours !== 12) hours += 12;
+                if (period === 'AM' && hours === 12) hours = 0;
+            }
+            return { hours, minutes };
+        }
+
+        function formatCourse(name) {
+            return name.replace(/\s*[-–]\s*/, ' ').substring(0, 50);
+        }
+
+        function fmtTime(t) {
+            if (!t) return '?';
+            let h = t.hours;
+            const m = String(t.minutes).padStart(2, '0');
+            const p = h >= 12 ? 'PM' : 'AM';
+            if (h > 12) h -= 12;
+            if (h === 0) h = 12;
+            return `${h}:${m} ${p}`;
+        }
+
+        function fmtDate(d) {
+            if (!d) return '?';
+            return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
+        }
+
+        function esc(s) {
+            const div = document.createElement('div');
+            div.textContent = s || '';
+            return div.innerHTML;
+        }
+
+        function downloadICS() {
+            if (!parsedEvents.length) return;
+
+            let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UBC Workday to Calendar//EN\r\nCALSCALE:GREGORIAN\r\n';
+            ics += 'BEGIN:VTIMEZONE\r\nTZID:America/Vancouver\r\n';
+            ics += 'BEGIN:DAYLIGHT\r\nTZOFFSETFROM:-0800\r\nTZOFFSETTO:-0700\r\nTZNAME:PDT\r\nDTSTART:19700308T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU\r\nEND:DAYLIGHT\r\n';
+            ics += 'BEGIN:STANDARD\r\nTZOFFSETFROM:-0700\r\nTZOFFSETTO:-0800\r\nTZNAME:PST\r\nDTSTART:19701101T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU\r\nEND:STANDARD\r\n';
+            ics += 'END:VTIMEZONE\r\n';
+
+            for (const e of parsedEvents) {
+                const firstDate = findFirstOccurrence(e.startDate, e.days);
+                const dtstart = fmtICSDateTime(firstDate, e.startTime);
+                const dtend = fmtICSDateTime(firstDate, e.endTime);
+                const until = fmtICSDate(e.endDate) + 'T235959Z';
+                const uid = Math.random().toString(36).substring(2) + '@ubc-calendar';
+
+                let rrule = `FREQ=WEEKLY;BYDAY=${e.days.join(',')};UNTIL=${until}`;
+                if (e.isAlternate) {
+                    rrule = `FREQ=WEEKLY;INTERVAL=2;BYDAY=${e.days.join(',')};UNTIL=${until}`;
+                }
+
+                const summary = e.format ? `${e.course} (${e.format})` : e.course;
+
+                ics += 'BEGIN:VEVENT\r\n';
+                ics += `UID:${uid}\r\n`;
+                ics += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
+                ics += `DTSTART;TZID=${TIMEZONE}:${dtstart}\r\n`;
+                ics += `DTEND;TZID=${TIMEZONE}:${dtend}\r\n`;
+                ics += `RRULE:${rrule}\r\n`;
+                ics += `SUMMARY:${escICS(summary)}\r\n`;
+                if (e.location) ics += `LOCATION:${escICS(e.location)}\r\n`;
+                if (e.instructor) ics += `DESCRIPTION:Instructor: ${escICS(e.instructor)}\r\n`;
+                ics += 'END:VEVENT\r\n';
+            }
+
+            ics += 'END:VCALENDAR\r\n';
+
+            const blob = new Blob([ics], { type: 'text/calendar' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'ubc_schedule.ics';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function findFirstOccurrence(startDate, days) {
+            const dayNum = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+            const targetDays = days.map(d => dayNum[d]);
+            const date = new Date(startDate.year, startDate.month - 1, startDate.day);
+
+            for (let i = 0; i < 7; i++) {
+                if (targetDays.includes(date.getDay())) {
+                    return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() };
+                }
+                date.setDate(date.getDate() + 1);
+            }
+            return startDate;
+        }
+
+        function fmtICSDateTime(date, time) {
+            return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}T${String(time.hours).padStart(2, '0')}${String(time.minutes).padStart(2, '0')}00`;
+        }
+
+        function fmtICSDate(date) {
+            return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}`;
+        }
+
+        function escICS(s) {
+            return (s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+        }
+    </script>
+</body>
+
+</html>
