@@ -1,6 +1,7 @@
 # UBC Workday to Calendar
 
-![Open Source](https://img.shields.io/badge/Open_Source-OSI_Approved-2ea44f?logo=opensourceinitiative&logoColor=white)
+![GitHub License](https://img.shields.io/github/license/jamubc/UBC-workday-to-calendar)
+
 
 Convert your UBC Workday schedule export (`.xlsx`) to an iCal file (`.ics`) that you can import into Google Calendar, Apple Calendar, Outlook, or any other calendar app.
 

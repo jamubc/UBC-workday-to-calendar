@@ -51,6 +51,38 @@
             margin: 18px 0 22px;
         }
 
+        .file-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: nowrap;
+            margin: 8px 0 10px;
+        }
+
+        .privacy-note {
+            margin: 0;
+            font-size: 12px;
+            color: #2e7d32;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex: 1 1 auto;
+        }
+
+        .privacy-icon {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
+            flex: 0 0 auto;
+        }
+
+        .file-row input[type="file"] {
+            flex: 0 0 auto;
+        }
+
         h2 {
             margin: 30px 0 15px 0;
             font-size: 18px;
@@ -132,7 +164,7 @@
         }
 
         input[type="file"] {
-            margin: 20px 0;
+            margin: 0;
         }
 
         button {
@@ -364,6 +396,12 @@
             .footer-cta {
                 width: 100%;
             }
+
+            .file-row {
+                flex-direction: column;
+                align-items: center;
+                flex-wrap: wrap;
+            }
         }
 
         @media (min-width: 900px) {
@@ -396,7 +434,17 @@
 
         <div class="step-block">
             <p class="step-heading">Step 2: Choose your .xlsx file below</p>
-            <input type="file" id="fileInput" accept=".xlsx,.xls">
+            <div class="file-row">
+                <input type="file" id="fileInput" accept=".xlsx,.xls">
+                <p class="privacy-note">
+                    <svg class="privacy-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                        <path
+                            d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM8 3a.9.9 0 1 1 0 1.8A.9.9 0 0 1 8 3Zm1 9H7V6.5h2V12Z">
+                        </path>
+                    </svg>
+                    <span>Runs fully in your browser — only this page and its libraries load; your schedule data never leaves your device.</span>
+                </p>
+            </div>
             <br>
             <button id="parseBtn" disabled>Parse File</button>
             <button id="downloadBtn" disabled>Download .ics</button>
