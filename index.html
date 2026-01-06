@@ -7,6 +7,13 @@
     <title>UBC Workday to Calendar</title>
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
     <style>
+        :root {
+            --ubc-blue: #002145;
+            --ubc-blue-deep: #00132d;
+            --ubc-gold: #fdb515;
+            --ubc-white: #ffffff;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -15,9 +22,11 @@
 
         body {
             font-family: system-ui, sans-serif;
-            max-width: 1000px;
-            margin: 40px auto;
-            padding: 20px;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
 
         h1 {
@@ -142,42 +151,201 @@
             font-size: 11px;
             padding: 2px 4px;
         }
+
+        .site-footer {
+            margin-top: auto;
+            background: var(--ubc-blue);
+            color: var(--ubc-white);
+            padding: 12px 0;
+            border-radius: 0;
+            box-shadow: none;
+            width: 100%;
+        }
+
+        .site-footer h2 {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            font-weight: 700;
+            border: none;
+            padding-bottom: 0;
+        }
+
+        .site-footer a {
+            color: var(--ubc-gold);
+            text-decoration: none;
+        }
+
+        .site-footer a:hover {
+            text-decoration: underline;
+        }
+
+        .footer-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            flex-wrap: wrap;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .page-content {
+            width: 100%;
+            max-width: 1000px;
+            margin: 40px auto 0;
+            padding: 0 20px 32px;
+        }
+
+        .footer-text {
+            max-width: 720px;
+        }
+
+        .footer-note {
+            margin-bottom: 6px;
+            color: rgba(255, 255, 255, 0.88);
+            font-size: 13px;
+        }
+
+        .footer-callout {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 0;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.78);
+            letter-spacing: 0.1px;
+        }
+
+        .footer-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .footer-arrow {
+            width: 44px;
+            height: 16px;
+            stroke: rgba(255, 255, 255, 0.75);
+            stroke-width: 2;
+            fill: none;
+        }
+
+        .footer-meta {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .footer-cta {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #0d1117;
+            color: #ffffff;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            text-decoration: none;
+            white-space: nowrap;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .footer-cta:hover {
+            text-decoration: none;
+            background: #161b22;
+        }
+
+        .footer-cta svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+
+        @media (max-width: 700px) {
+            .footer-content {
+                align-items: flex-start;
+            }
+
+            .footer-actions {
+                width: 100%;
+                justify-content: flex-start;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            .footer-cta {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 
 <body>
-    <h1>UBC Workday to Calendar</h1>
-    <p class="info">Upload your Workday Excel export (.xlsx) to convert it to an .ics calendar file.</p>
+    <main class="page-content">
+        <h1>UBC Workday to Calendar</h1>
+        <p class="info">Upload your Workday Excel export (.xlsx) to convert it to an .ics calendar file.</p>
 
-    <input type="file" id="fileInput" accept=".xlsx,.xls">
-    <br>
-    <button id="parseBtn" disabled>Parse File</button>
-    <button id="downloadBtn" disabled>Download .ics</button>
+        <input type="file" id="fileInput" accept=".xlsx,.xls">
+        <br>
+        <button id="parseBtn" disabled>Parse File</button>
+        <button id="downloadBtn" disabled>Download .ics</button>
 
-    <div id="status">Waiting for file...</div>
+        <div id="status">Waiting for file...</div>
 
-    <section id="tableSection" style="display:none;">
-        <h2>Parsed Events</h2>
-        <table id="preview">
-            <thead>
-                <tr>
-                    <th>Course</th>
-                    <th>Type</th>
-                    <th>Days</th>
-                    <th>Time</th>
-                    <th>Dates</th>
-                    <th>Location</th>
-                    <th>Note</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </section>
+        <section id="tableSection" style="display:none;">
+            <h2>Parsed Events</h2>
+            <table id="preview">
+                <thead>
+                    <tr>
+                        <th>Course</th>
+                        <th>Type</th>
+                        <th>Days</th>
+                        <th>Time</th>
+                        <th>Dates</th>
+                        <th>Location</th>
+                        <th>Note</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </section>
 
-    <section id="calendarSection">
-        <h2>Weekly Preview</h2>
-        <div id="calendar"></div>
-    </section>
+        <section id="calendarSection">
+            <h2>Weekly Preview</h2>
+            <div id="calendar"></div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-content">
+            <div class="footer-text">
+                <h2>About this site</h2>
+                <p class="footer-note">Not affiliated with the University of British Columbia or Workday.<br>This tool is provided "as is" without warranty of any kind.</p>
+                <p class="footer-meta">© 2025 jamubc. All rights reserved.</p>
+            </div>
+            <div class="footer-actions">
+                <div class="footer-callout">
+                    <span>Don't trust this? See the source yourself</span>
+                    <svg class="footer-arrow" viewBox="0 0 44 16" aria-hidden="true" focusable="false">
+                        <path d="M1 8h36"></path>
+                        <path d="M33 3l6 5-6 5"></path>
+                    </svg>
+                </div>
+                <a class="footer-cta" href="https://github.com/jamubc/UBC-workday-to-calendar" target="_blank"
+                    rel="noopener" aria-label="GitHub repository">
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                        <path
+                            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z">
+                        </path>
+                    </svg>
+                    GitHub
+                </a>
+            </div>
+        </div>
+    </footer>
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <script>
