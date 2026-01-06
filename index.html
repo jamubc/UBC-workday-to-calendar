@@ -30,7 +30,25 @@
         }
 
         h1 {
-            margin-bottom: 8px;
+            margin-bottom: 12px;
+        }
+
+        .title-goal {
+            font-size: 14px;
+            font-weight: 400;
+            color: #666;
+            display: block;
+            margin-top: 6px;
+        }
+
+        .step-heading {
+            margin: 0 0 8px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .step-block {
+            margin: 18px 0 22px;
         }
 
         h2 {
@@ -44,6 +62,73 @@
         .info {
             color: #666;
             margin-bottom: 20px;
+        }
+
+        .howto-banner {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            padding: 10px 14px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 0;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #444;
+            text-align: center;
+        }
+
+        .howto-step {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 999px;
+            background: #e8e8e8;
+            color: #333;
+            border: 1px solid #ccc;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .step-sep {
+            color: #999;
+            font-weight: 700;
+        }
+
+        .howto-link {
+            color: inherit;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
+        .howto-link:hover {
+            color: #222;
+        }
+
+        .wd-icon-gear {
+            width: 16px;
+            height: 16px;
+            vertical-align: -2px;
+        }
+
+        .wd-icon-gear .wd-icon-background {
+            fill: currentColor;
+            opacity: 0.25;
+        }
+
+        .wd-icon-gear .wd-icon-fill {
+            fill: currentColor;
         }
 
         input[type="file"] {
@@ -280,20 +365,44 @@
                 width: 100%;
             }
         }
+
+        @media (min-width: 900px) {
+            .howto-banner {
+                flex-wrap: nowrap;
+                gap: 8px;
+                font-size: 12px;
+            }
+        }
     </style>
 </head>
 
 <body>
     <main class="page-content">
-        <h1>UBC Workday to Calendar</h1>
-        <p class="info">Upload your Workday Excel export (.xlsx) to convert it to an .ics calendar file.</p>
+        <h1>UBC Workday to Calendar <span class="title-goal">(goal: Upload your Workday Excel export (.xlsx) to convert it to an .ics calendar file.)</span></h1>
+        <div class="step-block">
+            <p class="step-heading">Step 1: Get your .xlsx file from Workday</p>
+            <div class="howto-banner" aria-label="Workday export steps">
+                <div class="howto-step"><span class="step-num">1</span><span>Go to <a class="howto-link" href="https://myworkday.ubc.ca/" target="_blank" rel="noopener">Workday</a></span></div>
+                <span class="step-sep">→</span>
+                <div class="howto-step"><span class="step-num">2</span><span>Click "Academics"</span></div>
+                <span class="step-sep">→</span>
+                <div class="howto-step"><span class="step-num">3</span><span>Click "Registration &amp; Courses"</span></div>
+                <span class="step-sep">→</span>
+                <div class="howto-step"><span class="step-num">4</span><span>Click the <svg width="24" height="24" class="wd-icon-gear wd-icon" role="presentation" viewBox="0 0 24 24"><g fill-rule="evenodd" class="wd-icon-container"><path d="m12.838 2.75.497 2.483a1.632 1.632 0 0 0 2.506 1.038l2.107-1.404 1.185 1.185-1.404 2.107a1.632 1.632 0 0 0 1.038 2.506l2.483.497v1.676l-2.483.497a1.632 1.632 0 0 0-1.038 2.506l1.404 2.107-1.185 1.185-2.107-1.404a1.632 1.632 0 0 0-2.506 1.038l-.497 2.483h-1.676l-.497-2.483a1.632 1.632 0 0 0-2.506-1.038l-2.107 1.404-1.185-1.185 1.404-2.107a1.632 1.632 0 0 0-1.038-2.506l-2.483-.497v-1.676l2.483-.497A1.632 1.632 0 0 0 6.271 8.16L4.867 6.052l1.185-1.185L8.159 6.27a1.632 1.632 0 0 0 2.506-1.038l.497-2.483zM12 9.28a2.72 2.72 0 1 0 0 5.44 2.72 2.72 0 0 0 0-5.44Z" class="wd-icon-background"></path><path fill-rule="nonzero" d="M12.99 2c.558 0 1.096.43 1.205.977l.503 2.51 2.13-1.42c.458-.305 1.142-.239 1.543.161l1.4 1.401c.395.395.471 1.079.162 1.543l-1.42 2.13 2.51.503c.54.108.977.638.977 1.204v1.982c0 .557-.43 1.095-.977 1.204l-2.51.503 1.42 2.13c.305.458.239 1.142-.161 1.543l-1.401 1.4c-.395.395-1.079.471-1.543.162l-2.13-1.42-.503 2.51c-.108.54-.638.977-1.204.977h-1.982c-.557 0-1.095-.43-1.204-.977l-.503-2.51-2.13 1.42c-.458.305-1.142.239-1.543-.161l-1.4-1.401c-.395-.395-.471-1.079-.162-1.543l1.42-2.13-2.51-.503c-.54-.108-.977-.638-.977-1.204v-1.982c0-.557.43-1.095.977-1.204l2.51-.503-1.42-2.13c-.305-.458-.239-1.142.161-1.543l1.401-1.4c.395-.395 1.079-.471 1.543-.162l2.13 1.42.503-2.51c.108-.54.638-.977 1.204-.977zm-.22 1.5h-1.54l-.457 2.282a1.5 1.5 0 0 1-2.303.954L6.534 5.445l-1.09 1.09L6.737 8.47a1.5 1.5 0 0 1-.954 2.303L3.5 11.23v1.54l2.282.457a1.5 1.5 0 0 1 .954 2.303l-1.291 1.936 1.09 1.09 1.935-1.292a1.5 1.5 0 0 1 2.303.954l.457 2.282h1.54l.457-2.282a1.5 1.5 0 0 1 2.303-.954l1.936 1.291 1.09-1.09-1.292-1.935a1.5 1.5 0 0 1 .954-2.303l2.282-.457v-1.54l-2.282-.457a1.5 1.5 0 0 1-.954-2.303l1.291-1.936-1.09-1.09-1.935 1.292a1.5 1.5 0 0 1-2.303-.954zM12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm0 1.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" class="wd-icon-fill"></path></g></svg> next to "Current Classes"</span></div>
+                <span class="step-sep">→</span>
+                <div class="howto-step"><span class="step-num">5</span><span>Download To Excel</span></div>
+            </div>
+        </div>
 
-        <input type="file" id="fileInput" accept=".xlsx,.xls">
-        <br>
-        <button id="parseBtn" disabled>Parse File</button>
-        <button id="downloadBtn" disabled>Download .ics</button>
+        <div class="step-block">
+            <p class="step-heading">Step 2: Choose your .xlsx file below</p>
+            <input type="file" id="fileInput" accept=".xlsx,.xls">
+            <br>
+            <button id="parseBtn" disabled>Parse File</button>
+            <button id="downloadBtn" disabled>Download .ics</button>
 
-        <div id="status">Waiting for file...</div>
+            <div id="status">Waiting for file...</div>
+        </div>
 
         <section id="tableSection" style="display:none;">
             <h2>Parsed Events</h2>
@@ -324,7 +433,7 @@
             <div class="footer-text">
                 <h2>About this site</h2>
                 <p class="footer-note">Not affiliated with the University of British Columbia or Workday.<br>This tool is provided "as is" without warranty of any kind.</p>
-                <p class="footer-meta">© 2025 jamubc. All rights reserved.</p>
+                <p class="footer-meta"><strong>© 2026 jamubc.</strong> <em>Licensed under the <a href="LICENSE">MIT License</a>.</em></p>
             </div>
             <div class="footer-actions">
                 <div class="footer-callout">
