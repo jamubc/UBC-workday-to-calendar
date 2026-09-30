@@ -26,6 +26,7 @@ export function loadPage() {
     const onLoad = [];
     const elements = {};
     let sheetRows = [];
+    let calendarOptions = {};
     const context = vm.createContext({
         document: {
             getElementById: id => (elements[id] ??= stubElement()),
@@ -35,6 +36,8 @@ export function loadPage() {
         },
         FullCalendar: {
             Calendar: class {
+                constructor(el, options) { calendarOptions = { ...options }; }
+                setOption(name, value) { calendarOptions[name] = value; }
                 render() {}
                 gotoDate() {}
                 removeAllEvents() { previewEvents.length = 0; }
@@ -76,6 +79,7 @@ export function loadPage() {
             status: elements.status.textContent,
             isError: elements.status.className === 'error',
             events: vm.runInContext('parsedEvents', context),
+            calendar: calendarOptions,
         };
     }
 

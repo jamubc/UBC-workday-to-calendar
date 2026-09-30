@@ -37,3 +37,20 @@ test('UIDs differ between different meetings in one schedule', () => {
     ]), 'UID');
     assert.equal(new Set(uids).size, 3);
 });
+
+test('carriage returns in cell text are escaped, never written raw', () => {
+    const ics = loadPage().downloadICS([event({ instructor: 'Dr. One\r\nDr. Two' })]);
+    assert.equal(field(ics, 'DESCRIPTION')[0], 'Instructor: Dr. One\\nDr. Two');
+    assert.doesNotMatch(ics, /\r(?!\n)/);
+});
+
+test('long lines are folded to 75 octets without splitting UTF-8 characters', () => {
+    const instructor = 'Dr. Émilie Côté-Beauchamp; Alexander Maximilian Worthington-Smythe, PhD; 日本語の先生';
+    const ics = loadPage().downloadICS([event({ instructor })]);
+    for (const line of ics.split('\r\n')) {
+        const bytes = Buffer.from(line, 'utf8');
+        assert.ok(bytes.length <= 75, `${bytes.length} octets: ${line}`);
+    }
+    const unfolded = ics.replace(/\r\n /g, '');
+    assert.equal(field(unfolded, 'DESCRIPTION')[0], 'Instructor: Dr. Émilie Côté-Beauchamp\\; Alexander Maximilian Worthington-Smythe\\, PhD\\; 日本語の先生');
+});

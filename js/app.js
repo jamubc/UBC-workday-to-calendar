@@ -157,6 +157,7 @@ async function parseFile() {
             calendarSection.style.display = 'block';
             downloadBtn.disabled = false;
             status.className = 'success';
+            fitCalendarToEvents();
             // Go to the first event's date
             if (parsedEvents.length > 0) {
                 const firstDate = parsedEvents[0].startDate;
@@ -178,8 +179,8 @@ function addToCalendar(e) {
     const dayNumMap = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
     const targetDays = e.days.map(d => dayNumMap[d]);
 
-    const startTime = `${String(e.startTime.hours).padStart(2, '0')}:${String(e.startTime.minutes).padStart(2, '0')}:00`;
-    const endTime = `${String(e.endTime.hours).padStart(2, '0')}:${String(e.endTime.minutes).padStart(2, '0')}:00`;
+    const startTime = fmtSlotTime(e.startTime);
+    const endTime = fmtSlotTime(e.endTime);
     const title = e.format ? `${e.course} (${e.format.substring(0, 3)})` : e.course;
 
     // Mirror the .ics RRULE: start at the same first occurrence as DTSTART, and for
@@ -203,6 +204,17 @@ function addToCalendar(e) {
 // Whole days since 1970-01-01, computed in UTC so DST changes can't shift the count
 function epochDay(d) { return Date.UTC(d.year, d.month - 1, d.day) / 86400000; }
 function mondayWeek(n) { return Math.floor((n + 3) / 7); }
+
+function fmtSlotTime(t) { return `${String(t.hours).padStart(2, '0')}:${String(t.minutes).padStart(2, '0')}:00`; }
+
+// Widen the preview past 7am-9pm and show weekends only when a class needs them
+function fitCalendarToEvents() {
+    const earliest = Math.min(7, ...parsedEvents.map(e => e.startTime.hours));
+    const latest = Math.max(21, ...parsedEvents.map(e => e.endTime.hours + (e.endTime.minutes ? 1 : 0)));
+    calendar.setOption('slotMinTime', fmtSlotTime({ hours: earliest, minutes: 0 }));
+    calendar.setOption('slotMaxTime', fmtSlotTime({ hours: latest, minutes: 0 }));
+    calendar.setOption('weekends', parsedEvents.some(e => e.days.includes('SA') || e.days.includes('SU')));
+}
 
 function log(msg) {
     status.textContent += msg + '\n';
@@ -337,6 +349,7 @@ function downloadICS() {
         ics += 'END:VEVENT\r\n';
     }
     ics += 'END:VCALENDAR\r\n';
+    ics = ics.split('\r\n').map(foldLine).join('\r\n');
 
     const blob = new Blob([ics], { type: 'text/calendar' });
     const url = URL.createObjectURL(blob);
@@ -376,4 +389,18 @@ function hashString(s) {
     for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193); }
     return (h >>> 0).toString(16).padStart(8, '0');
 }
-function escICS(s) { return (s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
+function escICS(s) { return (s || '').replace(/\r\n?/g, '\n').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
+
+// RFC 5545 3.1: fold lines longer than 75 octets with CRLF + space, never splitting a UTF-8 character
+function foldLine(line) {
+    const parts = [];
+    let current = '', size = 0;
+    for (const ch of line) {
+        const cp = ch.codePointAt(0);
+        const n = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+        if (size + n > (parts.length ? 74 : 75)) { parts.push(current); current = ''; size = 0; }
+        current += ch; size += n;
+    }
+    parts.push(current);
+    return parts.join('\r\n ');
+}
