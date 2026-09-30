@@ -44,6 +44,12 @@ python -m http.server 8000
 
 Then open http://localhost:8000 in your browser.
 
+Run the tests (Node 20+, no install needed):
+
+```bash
+npm test
+```
+
 ## Tech Stack
 
 - Vanilla HTML/CSS/JavaScript

@@ -681,40 +681,27 @@
             const endTime = `${String(e.endTime.hours).padStart(2, '0')}:${String(e.endTime.minutes).padStart(2, '0')}:00`;
             const title = e.format ? `${e.course} (${e.format.substring(0, 3)})` : e.course;
 
-            const startDate = new Date(e.startDate.year, e.startDate.month - 1, e.startDate.day);
-            const endDate = new Date(e.endDate.year, e.endDate.month - 1, e.endDate.day);
-
-            // Find the first occurrence (first matching day on or after startDate)
-            let firstOccurrence = new Date(startDate);
-            while (!targetDays.includes(firstOccurrence.getDay()) && firstOccurrence <= endDate) {
-                firstOccurrence.setDate(firstOccurrence.getDate() + 1);
-            }
-
-            // Iterate through each day from start to end
-            let current = new Date(startDate);
-            while (current <= endDate) {
-                if (targetDays.includes(current.getDay())) {
-                    // Calculate week number since first occurrence
-                    const daysSinceFirst = Math.floor((current - firstOccurrence) / (24 * 60 * 60 * 1000));
-                    const weekNum = Math.floor(daysSinceFirst / 7);
-
-                    // For alternate weeks (INTERVAL=2), only show on even weeks (0, 2, 4...)
-                    const shouldShow = !e.isAlternate || (weekNum % 2 === 0);
-
-                    if (shouldShow) {
-                        const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-                        calendar.addEvent({
-                            title: title,
-                            start: `${dateStr}T${startTime}`,
-                            end: `${dateStr}T${endTime}`,
-                            color: e.color,
-                            extendedProps: { location: e.location }
-                        });
-                    }
-                }
-                current.setDate(current.getDate() + 1);
+            // Mirror the .ics RRULE: start at the same first occurrence as DTSTART, and for
+            // INTERVAL=2 count Monday-start weeks from that week (RFC 5545 default WKST=MO)
+            const first = epochDay(findFirstOccurrence(e.startDate, e.days));
+            const last = epochDay(e.endDate);
+            for (let n = first; n <= last; n++) {
+                if (!targetDays.includes((n + 4) % 7)) continue; // epoch day 0 was a Thursday
+                if (e.isAlternate && (mondayWeek(n) - mondayWeek(first)) % 2 !== 0) continue;
+                const dateStr = new Date(n * 86400000).toISOString().slice(0, 10);
+                calendar.addEvent({
+                    title: title,
+                    start: `${dateStr}T${startTime}`,
+                    end: `${dateStr}T${endTime}`,
+                    color: e.color,
+                    extendedProps: { location: e.location }
+                });
             }
         }
+
+        // Whole days since 1970-01-01, computed in UTC so DST changes can't shift the count
+        function epochDay(d) { return Date.UTC(d.year, d.month - 1, d.day) / 86400000; }
+        function mondayWeek(n) { return Math.floor((n + 3) / 7); }
 
         function log(msg) {
             status.textContent += msg + '\n';
@@ -828,8 +815,9 @@
                 const firstDate = findFirstOccurrence(e.startDate, e.days);
                 const dtstart = fmtICSDateTime(firstDate, e.startTime);
                 const dtend = fmtICSDateTime(firstDate, e.endTime);
-                const until = fmtICSDate(e.endDate) + 'T235959Z';
-                const uid = Math.random().toString(36).substring(2) + '@ubc-calendar';
+                const until = fmtICSUntil(e.endDate);
+                // Stable across downloads so re-importing updates events instead of duplicating them
+                const uid = `${dtstart}-${hashString([e.course, e.section, e.format, e.days.join(',')].join('|'))}@ubc-workday-to-calendar`;
                 let rrule = `FREQ=WEEKLY;BYDAY=${e.days.join(',')};UNTIL=${until}`;
                 if (e.isAlternate) rrule = `FREQ=WEEKLY;INTERVAL=2;BYDAY=${e.days.join(',')};UNTIL=${until}`;
                 const summary = e.format ? `${e.course} (${e.format})` : e.course;
@@ -869,7 +857,22 @@
         function fmtICSDateTime(date, time) {
             return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}T${String(time.hours).padStart(2, '0')}${String(time.minutes).padStart(2, '0')}00`;
         }
-        function fmtICSDate(date) { return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}`; }
+        // 23:59:59 on the end date in Vancouver, as UTC (RFC 5545 requires UTC UNTIL when DTSTART has a TZID)
+        function fmtICSUntil(date) {
+            const guess = Date.UTC(date.year, date.month - 1, date.day, 23, 59, 59);
+            const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+                timeZone: TIMEZONE, hourCycle: 'h23',
+                year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'
+            }).formatToParts(guess).map(part => [part.type, part.value]));
+            const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - guess;
+            return new Date(guess - offset).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+        }
+        // FNV-1a, 32-bit hex
+        function hashString(s) {
+            let h = 0x811c9dc5;
+            for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193); }
+            return (h >>> 0).toString(16).padStart(8, '0');
+        }
         function escICS(s) { return (s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
     </script>
 </body>
