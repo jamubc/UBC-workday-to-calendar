@@ -1,4 +1,5 @@
 const TIMEZONE = 'America/Vancouver';
+const REQUIRED_COLUMNS = ['Course Listing', 'Meeting Patterns'];
 let parsedEvents = [];
 let calendar = null;
 
@@ -60,6 +61,14 @@ async function parseFile() {
 
         log(`Found ${rows.length} data rows`);
 
+        const missing = rows.length ? REQUIRED_COLUMNS.filter(c => !(c in rows[0])) : [];
+        if (missing.length) {
+            log(`This doesn't look like a Workday "Current Classes" export: missing column(s) ${missing.map(c => `"${c}"`).join(', ')}.`);
+            log(`Columns found: ${Object.keys(rows[0]).join(', ')}`);
+            status.className = 'error';
+            return;
+        }
+
         let successCount = 0;
         let skipCount = 0;
         const colors = ['#3788d8', '#28a745', '#dc3545', '#fd7e14', '#6f42c1', '#20c997', '#e83e8c', '#17a2b8'];
@@ -68,24 +77,28 @@ async function parseFile() {
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
+            const cell = name => String(row[name] ?? '').trim();
 
-            const courseListing = row['Course Listing'] || '';
-            const section = row['Section'] || '';
-            const format = row['Instructional Format'] || '';
-            const meetingPatterns = row['Meeting Patterns'] || '';
-            const instructor = row['Instructor'] || '';
+            const courseListing = cell('Course Listing');
+            const section = cell('Section');
+            const format = cell('Instructional Format');
+            const meetingPatterns = cell('Meeting Patterns');
+            const instructor = cell('Instructor');
 
             if (!courseListing || courseListing.toLowerCase().includes('course listing')) {
                 continue;
             }
 
-            if (!meetingPatterns.trim()) {
+            if (!meetingPatterns) {
                 skipCount++;
                 log(`Row ${i + 2}: Skipped (no meeting pattern) - ${courseListing.substring(0, 30)}`);
                 continue;
             }
 
-            const patterns = parseUBCMeetingPatterns(meetingPatterns);
+            const { patterns, unreadable } = parseUBCMeetingPatterns(meetingPatterns);
+            for (const line of unreadable) {
+                log(`Row ${i + 2}: Could not read meeting pattern "${line}"`);
+            }
 
             if (patterns.length === 0) {
                 skipCount++;
@@ -101,10 +114,6 @@ async function parseFile() {
             }
 
             for (const p of patterns) {
-                if (!p.startDate || !p.endDate || !p.startTime || !p.endTime || !p.days.length) {
-                    continue;
-                }
-
                 const event = {
                     course: formatCourse(courseListing),
                     section: section,
@@ -200,13 +209,15 @@ function log(msg) {
 }
 
 function parseUBCMeetingPatterns(str) {
-    const results = [];
+    const patterns = [];
+    const unreadable = [];
     const lines = str.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
     for (const line of lines) {
         const parsed = parseSinglePattern(line);
-        if (parsed) results.push(parsed);
+        if (parsed) patterns.push(parsed);
+        else unreadable.push(line);
     }
-    return results;
+    return { patterns, unreadable };
 }
 
 function parseSinglePattern(line) {

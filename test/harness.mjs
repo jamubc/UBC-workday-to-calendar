@@ -13,6 +13,8 @@ function stubElement() {
         style: {},
         addEventListener() {},
         click() {},
+        appendChild() {},
+        get textContent() { return this.innerHTML; },
         set textContent(v) { this.innerHTML = String(v); },
         innerHTML: '',
     };
@@ -22,9 +24,11 @@ export function loadPage() {
     const downloads = [];
     const previewEvents = [];
     const onLoad = [];
+    const elements = {};
+    let sheetRows = [];
     const context = vm.createContext({
         document: {
-            getElementById: stubElement,
+            getElementById: id => (elements[id] ??= stubElement()),
             querySelector: stubElement,
             createElement: stubElement,
             addEventListener(type, fn) { if (type === 'DOMContentLoaded') onLoad.push(fn); },
@@ -32,12 +36,18 @@ export function loadPage() {
         FullCalendar: {
             Calendar: class {
                 render() {}
+                gotoDate() {}
                 removeAllEvents() { previewEvents.length = 0; }
                 addEvent(ev) { previewEvents.push(ev); }
             },
         },
         Blob: class { constructor(parts) { downloads.push(parts.join('')); } },
         URL: { createObjectURL: () => 'blob:stub', revokeObjectURL() {} },
+        XLSX: {
+            read: () => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } }),
+            utils: { sheet_to_json: () => sheetRows },
+        },
+        console: { log() {}, error() {} },
     });
     vm.runInContext(appScript, context);
     onLoad.forEach(fn => fn());
@@ -56,7 +66,20 @@ export function loadPage() {
         return downloads.at(-1);
     }
 
-    return { downloadICS, preview };
+    // Runs the page's own parseFile() as if the sheet contained `rows` (objects keyed
+    // by header, as SheetJS returns them). Returns the status log and parsed events.
+    async function parse(rows) {
+        sheetRows = rows;
+        elements.fileInput.files = [{ arrayBuffer: async () => new ArrayBuffer(0) }];
+        await vm.runInContext('parseFile()', context);
+        return {
+            status: elements.status.textContent,
+            isError: elements.status.className === 'error',
+            events: vm.runInContext('parsedEvents', context),
+        };
+    }
+
+    return { downloadICS, preview, parse };
 }
 
 // Builds an event shaped like the ones parseFile() produces.
