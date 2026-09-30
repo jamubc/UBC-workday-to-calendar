@@ -1,0 +1,91 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { loadPage, event, field, vtimezoneOffset } from './harness.mjs';
+
+const untilOf = ics => ics.slice(ics.indexOf('BEGIN:VEVENT')).match(/UNTIL=(\w+)/)[1];
+
+test('UNTIL covers the whole last day in Vancouver during PST', () => {
+    // A 5 pm class on the end date (Dec 4, PST) must still be generated.
+    const ics = loadPage().downloadICS([event({
+        startTime: { hours: 17, minutes: 0 },
+        endTime: { hours: 18, minutes: 30 },
+        endDate: { year: 2025, month: 12, day: 4 },
+    })]);
+    assert.equal(untilOf(ics), '20251205T075959Z');
+});
+
+test('UNTIL covers the whole last day in Vancouver during PDT', () => {
+    const ics = loadPage().downloadICS([event({
+        startDate: { year: 2026, month: 1, day: 5 },
+        endDate: { year: 2026, month: 4, day: 9 },
+    })]);
+    assert.equal(untilOf(ics), '20260410T065959Z');
+});
+
+test('UIDs are the same when the same schedule is downloaded twice', () => {
+    const events = [event(), event({ format: 'Laboratory', days: ['WE'] })];
+    const first = field(loadPage().downloadICS(events), 'UID');
+    const second = field(loadPage().downloadICS(events), 'UID');
+    assert.deepEqual(first, second);
+});
+
+test('UIDs differ between different meetings in one schedule', () => {
+    const uids = field(loadPage().downloadICS([
+        event(),
+        event({ format: 'Laboratory', days: ['WE'] }),
+        event({ startDate: { year: 2026, month: 1, day: 5 }, endDate: { year: 2026, month: 4, day: 9 } }),
+    ]), 'UID');
+    assert.equal(new Set(uids).size, 3);
+});
+
+test('carriage returns in cell text are escaped, never written raw', () => {
+    const ics = loadPage().downloadICS([event({ instructor: 'Dr. One\r\nDr. Two' })]);
+    assert.equal(field(ics, 'DESCRIPTION')[0], 'Instructor: Dr. One\\nDr. Two');
+    assert.doesNotMatch(ics, /\r(?!\n)/);
+});
+
+test('long lines are folded to 75 octets without splitting UTF-8 characters', () => {
+    const instructor = 'Dr. Émilie Côté-Beauchamp; Alexander Maximilian Worthington-Smythe, PhD; 日本語の先生';
+    const ics = loadPage().downloadICS([event({ instructor })]);
+    for (const line of ics.split('\r\n')) {
+        const bytes = Buffer.from(line, 'utf8');
+        assert.ok(bytes.length <= 75, `${bytes.length} octets: ${line}`);
+    }
+    const unfolded = ics.replace(/\r\n /g, '');
+    assert.equal(field(unfolded, 'DESCRIPTION')[0], 'Instructor: Dr. Émilie Côté-Beauchamp\\; Alexander Maximilian Worthington-Smythe\\, PhD\\; 日本語の先生');
+});
+
+test('VTIMEZONE follows BC time: PST/PDT until March 2026, then permanent UTC-7', () => {
+    const ics = loadPage().downloadICS([event()]);
+    assert.equal(vtimezoneOffset(ics, 2025, 12, 10), '-0800');
+    assert.equal(vtimezoneOffset(ics, 2026, 7, 10), '-0700');
+    assert.equal(vtimezoneOffset(ics, 2026, 12, 10), '-0700');
+    assert.equal(vtimezoneOffset(ics, 2027, 2, 10), '-0700');
+});
+
+test('UNTIL uses UTC-7 for end dates after BC stopped changing clocks', () => {
+    const ics = loadPage().downloadICS([event({
+        startDate: { year: 2026, month: 9, day: 8 },
+        endDate: { year: 2026, month: 12, day: 10 },
+    })]);
+    assert.equal(untilOf(ics), '20261211T065959Z');
+});
+
+test('meetings that differ only by room still get distinct UIDs', async () => {
+    const page = loadPage();
+    const { events } = await page.parse([{
+        'Course Listing': 'CPSC_V 110 - X', 'Section': 'CPSC_V 110-101', 'Instructional Format': 'Lecture',
+        'Meeting Patterns': [
+            '2025-09-02 - 2025-12-04 | Tue | 9:30 a.m. - 11:00 a.m. | UBCV | IKB | Floor: 1 | Room: 182',
+            '2025-09-02 - 2025-12-04 | Tue | 9:30 a.m. - 11:00 a.m. | UBCV | DMP | Floor: 1 | Room: 110',
+        ].join('\n'),
+    }]);
+    const uids = field(page.downloadICS(events), 'UID');
+    assert.equal(uids.length, 2);
+    assert.equal(new Set(uids).size, 2);
+});
+
+test('alternate-week rules state Monday as the week start', () => {
+    const ics = loadPage().downloadICS([event({ isAlternate: true, days: ['SU', 'WE'] })]);
+    assert.match(field(ics, 'RRULE').at(-1), /;WKST=MO/);
+});
