@@ -57,6 +57,8 @@ npm test
 - [SheetJS](https://sheetjs.com/) for .xlsx parsing
 - RFC 5545 compliant .ics generation
 
+Both libraries are vendored in [`vendor/`](vendor/) and a Content-Security-Policy blocks all network requests, so the page cannot send your schedule anywhere.
+
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.

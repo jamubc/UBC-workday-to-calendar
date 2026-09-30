@@ -5,7 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UBC Workday to Calendar</title>
-    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+    <!-- connect-src 'none' enforces the privacy promise: the page cannot send data anywhere -->
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <script src="vendor/fullcalendar/index.global.min.js"></script>
     <style>
         :root {
             --ubc-blue: #002145;
@@ -504,7 +507,7 @@
         </div>
     </footer>
 
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="vendor/sheetjs/xlsx.full.min.js"></script>
     <script src="js/app.js"></script>
 </body>
 
