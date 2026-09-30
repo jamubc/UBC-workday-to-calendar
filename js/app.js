@@ -322,8 +322,10 @@ function downloadICS() {
     if (!parsedEvents.length) return;
     let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UBC Workday to Calendar//EN\r\nCALSCALE:GREGORIAN\r\n';
     ics += 'BEGIN:VTIMEZONE\r\nTZID:America/Vancouver\r\n';
-    ics += 'BEGIN:DAYLIGHT\r\nTZOFFSETFROM:-0800\r\nTZOFFSETTO:-0700\r\nTZNAME:PDT\r\nDTSTART:19700308T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU\r\nEND:DAYLIGHT\r\n';
-    ics += 'BEGIN:STANDARD\r\nTZOFFSETFROM:-0700\r\nTZOFFSETTO:-0800\r\nTZNAME:PST\r\nDTSTART:19701101T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU\r\nEND:STANDARD\r\n';
+    // PST/PDT until BC's last spring-forward on 2026-03-08, then permanent UTC-7 (tzdata 2026c)
+    ics += 'BEGIN:DAYLIGHT\r\nTZOFFSETFROM:-0800\r\nTZOFFSETTO:-0700\r\nTZNAME:PDT\r\nDTSTART:19700308T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU;UNTIL=20260308T100000Z\r\nEND:DAYLIGHT\r\n';
+    ics += 'BEGIN:STANDARD\r\nTZOFFSETFROM:-0700\r\nTZOFFSETTO:-0800\r\nTZNAME:PST\r\nDTSTART:19701101T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU;UNTIL=20251102T090000Z\r\nEND:STANDARD\r\n';
+    ics += 'BEGIN:STANDARD\r\nTZOFFSETFROM:-0700\r\nTZOFFSETTO:-0700\r\nTZNAME:MST\r\nDTSTART:20261101T020000\r\nEND:STANDARD\r\n';
     ics += 'END:VTIMEZONE\r\n';
 
     for (const e of parsedEvents) {
@@ -375,13 +377,21 @@ function fmtICSDateTime(date, time) {
 }
 // 23:59:59 on the end date in Vancouver, as UTC (RFC 5545 requires UTC UNTIL when DTSTART has a TZID)
 function fmtICSUntil(date) {
-    const guess = Date.UTC(date.year, date.month - 1, date.day, 23, 59, 59);
-    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-        timeZone: TIMEZONE, hourCycle: 'h23',
-        year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'
-    }).formatToParts(guess).map(part => [part.type, part.value]));
-    const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - guess;
-    return new Date(guess - offset).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const instant = Date.UTC(date.year, date.month - 1, date.day, 23, 59, 59) - vancouverOffsetHours(date) * 3600000;
+    return new Date(instant).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+// Vancouver's UTC offset at the end of a day, by the same rules as the VTIMEZONE in downloadICS:
+// PDT from the 2nd Sunday of March to the 1st Sunday of November, and UTC-7 for good from 2026-03-08.
+// Computed here rather than with Intl so the file never disagrees with itself on a browser with old tzdata.
+function vancouverOffsetHours(date) {
+    const day = epochDay(date);
+    if (day >= epochDay({ year: 2026, month: 3, day: 8 })) return -7;
+    const nthSunday = (month, n) => {
+        const first = epochDay({ year: date.year, month, day: 1 });
+        return first + (7 - (first + 4) % 7) % 7 + 7 * (n - 1);
+    };
+    return day >= nthSunday(3, 2) && day < nthSunday(11, 1) ? -7 : -8;
 }
 // FNV-1a, 32-bit hex
 function hashString(s) {

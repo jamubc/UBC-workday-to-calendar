@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage, event, field } from './harness.mjs';
+import { loadPage, event, field, vtimezoneOffset } from './harness.mjs';
 
-const untilOf = ics => ics.match(/UNTIL=(\w+)/)[1];
+const untilOf = ics => ics.slice(ics.indexOf('BEGIN:VEVENT')).match(/UNTIL=(\w+)/)[1];
 
 test('UNTIL covers the whole last day in Vancouver during PST', () => {
     // A 5 pm class on the end date (Dec 4, PST) must still be generated.
@@ -53,4 +53,20 @@ test('long lines are folded to 75 octets without splitting UTF-8 characters', ()
     }
     const unfolded = ics.replace(/\r\n /g, '');
     assert.equal(field(unfolded, 'DESCRIPTION')[0], 'Instructor: Dr. Émilie Côté-Beauchamp\\; Alexander Maximilian Worthington-Smythe\\, PhD\\; 日本語の先生');
+});
+
+test('VTIMEZONE follows BC time: PST/PDT until March 2026, then permanent UTC-7', () => {
+    const ics = loadPage().downloadICS([event()]);
+    assert.equal(vtimezoneOffset(ics, 2025, 12, 10), '-0800');
+    assert.equal(vtimezoneOffset(ics, 2026, 7, 10), '-0700');
+    assert.equal(vtimezoneOffset(ics, 2026, 12, 10), '-0700');
+    assert.equal(vtimezoneOffset(ics, 2027, 2, 10), '-0700');
+});
+
+test('UNTIL uses UTC-7 for end dates after BC stopped changing clocks', () => {
+    const ics = loadPage().downloadICS([event({
+        startDate: { year: 2026, month: 9, day: 8 },
+        endDate: { year: 2026, month: 12, day: 10 },
+    })]);
+    assert.equal(untilOf(ics), '20261211T065959Z');
 });

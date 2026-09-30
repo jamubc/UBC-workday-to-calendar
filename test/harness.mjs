@@ -107,3 +107,38 @@ export function event(overrides = {}) {
 export function field(ics, name) {
     return [...ics.matchAll(new RegExp(`^${name}[:;](.*)\\r$`, 'gm'))].map(m => m[1]);
 }
+
+// UTC offset (e.g. '-0700') that the .ics file's own VTIMEZONE assigns to a local
+// wall-clock time, so tests check what calendar apps will compute from the file.
+export function vtimezoneOffset(ics, year, month, day, hour = 12) {
+    const target = Date.UTC(year, month - 1, day, hour);
+    const components = [...ics.matchAll(/BEGIN:(STANDARD|DAYLIGHT)\r\n([\s\S]*?)END:\1/g)].map(m => m[2]);
+    let best = null;
+    for (const c of components) {
+        const get = name => (c.match(new RegExp(`^${name}:(.*)\\r$`, 'm')) || [])[1];
+        const [, y, mo, d, h, mi] = get('DTSTART').match(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)/).map(Number);
+        const fromMinutes = offsetMinutes(get('TZOFFSETFROM'));
+        const onsets = [Date.UTC(y, mo - 1, d, h, mi)];
+        const rule = get('RRULE');
+        if (rule) {
+            const bymonth = Number(rule.match(/BYMONTH=(\d+)/)[1]);
+            const nth = Number(rule.match(/BYDAY=(\d)SU/)[1]);
+            const until = rule.match(/UNTIL=(\d{8}T\d{6})Z/);
+            const untilUtc = until ? Date.parse(until[1].replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)/, '$1-$2-$3T$4:$5:$6Z')) : Infinity;
+            for (let yr = y; yr <= year; yr++) {
+                const first = new Date(Date.UTC(yr, bymonth - 1, 1)).getUTCDay();
+                const onset = Date.UTC(yr, bymonth - 1, 1 + (7 - first) % 7 + 7 * (nth - 1), h, mi);
+                if (onset - fromMinutes * 60000 <= untilUtc) onsets.push(onset);
+            }
+        }
+        for (const onset of onsets) {
+            if (onset <= target && (!best || onset > best.onset)) best = { onset, to: get('TZOFFSETTO') };
+        }
+    }
+    return best.to;
+}
+
+function offsetMinutes(s) {
+    const sign = s[0] === '-' ? -1 : 1;
+    return sign * (Number(s.slice(1, 3)) * 60 + Number(s.slice(3, 5)));
+}
