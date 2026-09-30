@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage, event } from './harness.mjs';
+import { loadPage, event, expandWeeklyRule } from './harness.mjs';
 
 // The .ics uses RRULE INTERVAL=2, which counts Monday-start calendar weeks from
 // the week containing DTSTART (RFC 5545, default WKST=MO). The preview must match.
@@ -58,4 +58,34 @@ test('preview time range covers evening and early classes', async () => {
     ]);
     assert.ok(calendar.slotMaxTime >= '22:00:00', calendar.slotMaxTime);
     assert.ok(calendar.slotMinTime <= '06:30:00', calendar.slotMinTime);
+});
+
+test('preview matches an independent expansion of the .ics RRULE for random meetings', () => {
+    let seed = 20260930;
+    const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const pick = n => Math.floor(random() * n);
+    const allDays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const page = loadPage();
+    let checked = 0;
+
+    for (let i = 0; i < 300; i++) {
+        const start = new Date(Date.UTC(2025, 0, 1) + pick(900) * 86400000);
+        const end = new Date(start.getTime() + pick(130) * 86400000);
+        const days = allDays.filter(() => random() < 0.35);
+        if (!days.length) days.push(allDays[pick(7)]);
+        const hours = 7 + pick(15);
+        const e = event({
+            days,
+            isAlternate: random() < 0.5,
+            startTime: { hours, minutes: pick(2) * 30 },
+            endTime: { hours: hours + 1, minutes: 20 },
+            startDate: { year: start.getUTCFullYear(), month: start.getUTCMonth() + 1, day: start.getUTCDate() },
+            endDate: { year: end.getUTCFullYear(), month: end.getUTCMonth() + 1, day: end.getUTCDate() },
+        });
+        const previewDates = page.preview([e]);
+        if (!previewDates.length) continue; // parseFile skips meetings with no class dates
+        assert.deepEqual(previewDates, expandWeeklyRule(page.downloadICS([e])), JSON.stringify(e));
+        checked++;
+    }
+    assert.ok(checked > 250, `only ${checked} meetings had class dates`);
 });

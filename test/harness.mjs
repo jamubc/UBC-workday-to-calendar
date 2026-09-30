@@ -2,6 +2,7 @@
 // the exact code the live page runs.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import assert from 'node:assert/strict';
 
 // Students' browsers run in Vancouver time; pin it so DST bugs reproduce on any machine.
 process.env.TZ = 'America/Vancouver';
@@ -111,6 +112,7 @@ export function field(ics, name) {
 // UTC offset (e.g. '-0700') that the .ics file's own VTIMEZONE assigns to a local
 // wall-clock time, so tests check what calendar apps will compute from the file.
 export function vtimezoneOffset(ics, year, month, day, hour = 12) {
+    ics = ics.replace(/\r\n /g, ''); // unfold, as clients do
     const target = Date.UTC(year, month - 1, day, hour);
     const components = [...ics.matchAll(/BEGIN:(STANDARD|DAYLIGHT)\r\n([\s\S]*?)END:\1/g)].map(m => m[2]);
     let best = null;
@@ -141,4 +143,33 @@ export function vtimezoneOffset(ics, year, month, day, hour = 12) {
 function offsetMinutes(s) {
     const sign = s[0] === '-' ? -1 : 1;
     return sign * (Number(s.slice(1, 3)) * 60 + Number(s.slice(3, 5)));
+}
+
+// Independent RFC 5545 expansion of the first VEVENT's weekly RRULE, returning local
+// dates (YYYY-MM-DD). Converts to UTC with the file's own VTIMEZONE to apply UNTIL.
+export function expandWeeklyRule(ics) {
+    ics = ics.replace(/\r\n /g, ''); // unfold, as clients do
+    const vevent = ics.slice(ics.indexOf('BEGIN:VEVENT'));
+    const [, y, m, d, hh, mm] = vevent.match(/DTSTART;TZID=[^:]+:(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)/).map(Number);
+    const rule = Object.fromEntries(vevent.match(/^RRULE:(.*)\r$/m)[1].split(';').map(p => p.split('=')));
+    assert(rule.FREQ === 'WEEKLY' && (rule.WKST ?? 'MO') === 'MO');
+    const interval = Number(rule.INTERVAL ?? 1);
+    const byday = rule.BYDAY.split(',').map(code => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(code));
+    const until = Date.parse(rule.UNTIL.replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z/, '$1-$2-$3T$4:$5:$6Z'));
+
+    const DAY = 86400000;
+    const start = Date.UTC(y, m - 1, d);
+    const mondayOf = t => t - ((new Date(t).getUTCDay() + 6) % 7) * DAY;
+    const dates = [];
+    for (let t = start; t <= until + DAY; t += DAY) {
+        const date = new Date(t);
+        if (!byday.includes(date.getUTCDay())) continue;
+        const weeks = Math.round((mondayOf(t) - mondayOf(start)) / (7 * DAY));
+        if (weeks % interval !== 0) continue;
+        const offset = vtimezoneOffset(ics, date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate(), hh);
+        const sign = offset[0] === '-' ? -1 : 1;
+        const utc = t + (hh * 60 + mm) * 60000 - sign * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(3))) * 60000;
+        if (utc <= until) dates.push(date.toISOString().slice(0, 10));
+    }
+    return dates;
 }
