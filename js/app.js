@@ -1,293 +1,368 @@
-/**
- * Main Application Logic
- * Handles file upload, parsing, preview rendering, and download
- */
+const TIMEZONE = 'America/Vancouver';
+let parsedEvents = [];
+let calendar = null;
 
-document.addEventListener('DOMContentLoaded', () => {
-    // DOM Elements
-    const uploadZone = document.getElementById('uploadZone');
-    const fileInput = document.getElementById('fileInput');
-    const fileInfo = document.getElementById('fileInfo');
-    const fileName = document.getElementById('fileName');
-    const removeFile = document.getElementById('removeFile');
-    const previewSection = document.getElementById('previewSection');
-    const previewBody = document.getElementById('previewBody');
-    const eventCount = document.getElementById('eventCount');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const errorSection = document.getElementById('errorSection');
-    const errorMessage = document.getElementById('errorMessage');
-    const tryAgainBtn = document.getElementById('tryAgainBtn');
+const fileInput = document.getElementById('fileInput');
+const parseBtn = document.getElementById('parseBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const status = document.getElementById('status');
+const tableSection = document.getElementById('tableSection');
+const calendarSection = document.getElementById('calendarSection');
+const tbody = document.querySelector('#preview tbody');
 
-    // State
-    let currentEvents = [];
-    let currentFileName = 'schedule';
-
-    // ==========================================
-    // File Upload Handling
-    // ==========================================
-
-    // Click to upload
-    uploadZone.addEventListener('click', () => {
-        fileInput.click();
+// Initialize FullCalendar
+document.addEventListener('DOMContentLoaded', function () {
+    calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+        initialView: 'timeGridWeek',
+        slotMinTime: '07:00:00',
+        slotMaxTime: '21:00:00',
+        weekends: false,
+        allDaySlot: false,
+        height: 'auto',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'timeGridWeek,timeGridDay'
+        },
+        events: []
     });
+    calendar.render();
+});
 
-    // File input change
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            handleFile(file);
-        }
-    });
+fileInput.addEventListener('change', () => {
+    parseBtn.disabled = !fileInput.files.length;
+    downloadBtn.disabled = true;
+    parsedEvents = [];
+    tbody.innerHTML = '';
+    tableSection.style.display = 'none';
+    calendarSection.style.display = 'none';
+    if (calendar) calendar.removeAllEvents();
+    status.textContent = 'File selected. Click "Parse File".';
+});
 
-    // Drag and drop
-    uploadZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadZone.classList.add('dragover');
-    });
+parseBtn.addEventListener('click', parseFile);
+downloadBtn.addEventListener('click', downloadICS);
 
-    uploadZone.addEventListener('dragleave', (e) => {
-        e.preventDefault();
-        uploadZone.classList.remove('dragover');
-    });
+async function parseFile() {
+    status.textContent = 'Parsing...\n';
+    parsedEvents = [];
+    tbody.innerHTML = '';
+    if (calendar) calendar.removeAllEvents();
 
-    uploadZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadZone.classList.remove('dragover');
+    try {
+        const file = fileInput.files[0];
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
 
-        const file = e.dataTransfer.files[0];
-        if (file) {
-            handleFile(file);
-        }
-    });
+        const sheetName = workbook.SheetNames[0];
+        const ws = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
-    // Remove file button
-    removeFile.addEventListener('click', (e) => {
-        e.stopPropagation();
-        resetState();
-    });
+        log(`Found ${rows.length} data rows`);
 
-    // Try again button
-    tryAgainBtn.addEventListener('click', () => {
-        resetState();
-    });
+        let successCount = 0;
+        let skipCount = 0;
+        const colors = ['#3788d8', '#28a745', '#dc3545', '#fd7e14', '#6f42c1', '#20c997', '#e83e8c', '#17a2b8'];
+        let colorIdx = 0;
+        const courseColors = {};
 
-    // Download button
-    downloadBtn.addEventListener('click', () => {
-        downloadICS();
-    });
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
 
-    // ==========================================
-    // File Processing
-    // ==========================================
+            const courseListing = row['Course Listing'] || '';
+            const section = row['Section'] || '';
+            const format = row['Instructional Format'] || '';
+            const meetingPatterns = row['Meeting Patterns'] || '';
+            const instructor = row['Instructor'] || '';
 
-    async function handleFile(file) {
-        // Validate file type
-        if (!file.name.match(/\.(xlsx|xls)$/i)) {
-            showError('Please upload an Excel file (.xlsx or .xls)');
-            return;
-        }
-
-        // Store filename for later
-        currentFileName = file.name.replace(/\.(xlsx|xls)$/i, '');
-
-        // Show file info
-        fileName.textContent = file.name;
-        fileInfo.hidden = false;
-
-        try {
-            // Read file
-            const data = await readFile(file);
-
-            // Parse with WorkdayParser
-            const result = WorkdayParser.parse(data);
-
-            if (result.events.length === 0) {
-                if (result.errors.length > 0) {
-                    showError(result.errors[0]);
-                } else {
-                    showError('No course events found in the file. Make sure it\'s a Workday schedule export.');
-                }
-                return;
+            if (!courseListing || courseListing.toLowerCase().includes('course listing')) {
+                continue;
             }
 
-            // Store events and show preview
-            currentEvents = result.events;
-            showPreview(result.events);
+            if (!meetingPatterns.trim()) {
+                skipCount++;
+                log(`Row ${i + 2}: Skipped (no meeting pattern) - ${courseListing.substring(0, 30)}`);
+                continue;
+            }
 
-            // Hide any previous errors
-            errorSection.hidden = true;
+            const patterns = parseUBCMeetingPatterns(meetingPatterns);
 
-        } catch (err) {
-            console.error('Error processing file:', err);
-            showError('Unable to read the file. Make sure it\'s a valid Excel file.');
+            if (patterns.length === 0) {
+                skipCount++;
+                log(`Row ${i + 2}: Skipped (parse failed) - ${courseListing.substring(0, 30)}`);
+                continue;
+            }
+
+            // Assign color per course
+            const courseKey = courseListing.substring(0, 20);
+            if (!courseColors[courseKey]) {
+                courseColors[courseKey] = colors[colorIdx % colors.length];
+                colorIdx++;
+            }
+
+            for (const p of patterns) {
+                if (!p.startDate || !p.endDate || !p.startTime || !p.endTime || !p.days.length) {
+                    continue;
+                }
+
+                const event = {
+                    course: formatCourse(courseListing),
+                    section: section,
+                    format: format,
+                    days: p.days,
+                    startTime: p.startTime,
+                    endTime: p.endTime,
+                    startDate: p.startDate,
+                    endDate: p.endDate,
+                    location: p.location,
+                    isAlternate: p.isAlternate,
+                    instructor: instructor,
+                    color: courseColors[courseKey]
+                };
+
+                parsedEvents.push(event);
+                successCount++;
+
+                // Add to table
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${esc(event.course)}</td>
+                    <td>${esc(event.format)}</td>
+                    <td>${event.days.join(', ')}</td>
+                    <td>${fmtTime(event.startTime)} - ${fmtTime(event.endTime)}</td>
+                    <td>${fmtDate(event.startDate)} to ${fmtDate(event.endDate)}</td>
+                    <td>${esc(event.location)}</td>
+                    <td>${event.isAlternate ? 'Alt weeks' : ''}</td>
+                `;
+                tbody.appendChild(tr);
+
+                // Add to calendar
+                addToCalendar(event);
+            }
         }
-    }
 
-    function readFile(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(new Uint8Array(e.target.result));
-            reader.onerror = reject;
-            reader.readAsArrayBuffer(file);
+        log(`Parsed: ${successCount} events, Skipped: ${skipCount} rows`);
+
+        if (successCount > 0) {
+            tableSection.style.display = 'block';
+            calendarSection.style.display = 'block';
+            downloadBtn.disabled = false;
+            status.className = 'success';
+            // Go to the first event's date
+            if (parsedEvents.length > 0) {
+                const firstDate = parsedEvents[0].startDate;
+                calendar.gotoDate(new Date(firstDate.year, firstDate.month - 1, firstDate.day));
+            }
+        } else {
+            status.className = 'error';
+        }
+
+    } catch (err) {
+        log('ERROR: ' + err.message);
+        console.error(err);
+        status.className = 'error';
+    }
+}
+
+function addToCalendar(e) {
+    // Generate individual occurrences to match ICS exactly
+    const dayNumMap = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+    const targetDays = e.days.map(d => dayNumMap[d]);
+
+    const startTime = `${String(e.startTime.hours).padStart(2, '0')}:${String(e.startTime.minutes).padStart(2, '0')}:00`;
+    const endTime = `${String(e.endTime.hours).padStart(2, '0')}:${String(e.endTime.minutes).padStart(2, '0')}:00`;
+    const title = e.format ? `${e.course} (${e.format.substring(0, 3)})` : e.course;
+
+    // Mirror the .ics RRULE: start at the same first occurrence as DTSTART, and for
+    // INTERVAL=2 count Monday-start weeks from that week (RFC 5545 default WKST=MO)
+    const first = epochDay(findFirstOccurrence(e.startDate, e.days));
+    const last = epochDay(e.endDate);
+    for (let n = first; n <= last; n++) {
+        if (!targetDays.includes((n + 4) % 7)) continue; // epoch day 0 was a Thursday
+        if (e.isAlternate && (mondayWeek(n) - mondayWeek(first)) % 2 !== 0) continue;
+        const dateStr = new Date(n * 86400000).toISOString().slice(0, 10);
+        calendar.addEvent({
+            title: title,
+            start: `${dateStr}T${startTime}`,
+            end: `${dateStr}T${endTime}`,
+            color: e.color,
+            extendedProps: { location: e.location }
         });
     }
+}
 
-    // ==========================================
-    // Preview Rendering
-    // ==========================================
+// Whole days since 1970-01-01, computed in UTC so DST changes can't shift the count
+function epochDay(d) { return Date.UTC(d.year, d.month - 1, d.day) / 86400000; }
+function mondayWeek(n) { return Math.floor((n + 3) / 7); }
 
-    function showPreview(events) {
-        // Clear previous preview
-        previewBody.innerHTML = '';
+function log(msg) {
+    status.textContent += msg + '\n';
+}
 
-        let validCount = 0;
+function parseUBCMeetingPatterns(str) {
+    const results = [];
+    const lines = str.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
+    for (const line of lines) {
+        const parsed = parseSinglePattern(line);
+        if (parsed) results.push(parsed);
+    }
+    return results;
+}
 
-        // Populate table
-        for (const event of events) {
-            const row = document.createElement('tr');
+function parseSinglePattern(line) {
+    const parts = line.split('|').map(p => p.trim());
+    if (parts.length < 3) return null;
 
-            // Check if valid
-            const isValid = event.days.length > 0 && event.startTime && event.endTime;
-            if (isValid) validCount++;
+    const dateRange = parseDateRange(parts[0]);
+    if (!dateRange.start || !dateRange.end) return null;
 
-            if (!isValid) {
-                row.classList.add('row-error');
-            }
+    const daysPart = parts[1];
+    const isAlternate = daysPart.toLowerCase().includes('alternate');
+    const days = parseDays(daysPart.replace(/\(alternate\s*weeks?\)/gi, ''));
+    if (days.length === 0) return null;
 
-            const daysDisplay = event.days.length > 0 ? event.days.join(', ') : '<span class="error-text">?</span>';
+    const times = parseTimeRange(parts[2]);
+    if (!times.start || !times.end) return null;
 
-            let timeDisplay = '-';
-            if (event.startTime && event.endTime) {
-                timeDisplay = `${formatTime(event.startTime)} - ${formatTime(event.endTime)}`;
-            } else {
-                timeDisplay = '<span class="error-text" title="Could not parse time">⚠️ Time?</span>';
-            }
-
-            // Add raw data button if invalid
-            const rawButton = !isValid && event.raw ?
-                `<br><button class="btn-xs btn-debug" onclick="alert('Raw Data:\\n' + '${escapeJs(event.raw)}')">View Raw</button>` : '';
-
-            row.innerHTML = `
-                <td>
-                    <strong>${escapeHtml(event.courseCode)}</strong>
-                    ${!isValid ? '<div class="error-text-small">Parsing incomplete</div>' : ''}
-                </td>
-                <td>${escapeHtml(event.section)}</td>
-                <td>${escapeHtml(event.format)}</td>
-                <td>${daysDisplay}</td>
-                <td>${timeDisplay} ${rawButton}</td>
-                <td>${escapeHtml(event.location || '-')}</td>
-            `;
-
-            previewBody.appendChild(row);
-        }
-
-        // Update event count
-        eventCount.textContent = validCount;
-
-        // Show warning if some events are invalid
-        if (validCount < events.length) {
-            const warning = document.createElement('div');
-            warning.className = 'warning-banner';
-            warning.innerHTML = `⚠️ Using flexible parsing. ${events.length - validCount} event(s) could not be fully parsed. Check the "View Raw" buttons.`;
-            previewSection.insertBefore(warning, previewSection.firstChild);
-        }
-
-        // Show preview section
-        previewSection.hidden = false;
+    let location = '';
+    if (parts.length >= 5) {
+        const building = parts[4] || '';
+        const roomPart = parts.find(p => p.toLowerCase().startsWith('room'));
+        const room = roomPart ? roomPart.replace(/room:\s*/i, 'Rm ') : '';
+        location = (building + ' ' + room).trim();
     }
 
-    function formatTime(time) {
-        if (!time) return '';
+    return {
+        startDate: dateRange.start, endDate: dateRange.end,
+        days: days, startTime: times.start, endTime: times.end,
+        location: location, isAlternate: isAlternate
+    };
+}
 
-        let hours = time.hours;
-        const minutes = String(time.minutes).padStart(2, '0');
-        const period = hours >= 12 ? 'PM' : 'AM';
+function parseDateRange(str) {
+    const match = str.match(/(\d{4}-\d{2}-\d{2})\s*[-–]\s*(\d{4}-\d{2}-\d{2})/);
+    if (!match) return { start: null, end: null };
+    return { start: parseISODate(match[1]), end: parseISODate(match[2]) };
+}
 
-        if (hours > 12) hours -= 12;
-        if (hours === 0) hours = 12;
+function parseISODate(str) {
+    const m = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]) };
+}
 
-        return `${hours}:${minutes} ${period}`;
-    }
-
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    function escapeJs(text) {
-        if (!text) return '';
-        return text.replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "");
-    }
-
-    // ==========================================
-    // ICS Download
-    // ==========================================
-
-    function downloadICS() {
-        const validEvents = currentEvents.filter(e => e.days.length > 0 && e.startTime && e.endTime);
-
-        if (validEvents.length === 0) {
-            showError('No valid events were found to add to your calendar.');
-            return;
-        }
-
-        if (validEvents.length < currentEvents.length) {
-            if (!confirm(`Warning: Only ${validEvents.length} out of ${currentEvents.length} events could be parsed correctly. Download anyway?`)) {
-                return;
+function parseDays(str) {
+    const dayMap = { 'mo': 'MO', 'mon': 'MO', 'tu': 'TU', 'tue': 'TU', 'we': 'WE', 'wed': 'WE', 'th': 'TH', 'thu': 'TH', 'fr': 'FR', 'fri': 'FR', 'sa': 'SA', 'sat': 'SA', 'su': 'SU', 'sun': 'SU' };
+    const days = [];
+    const tokens = str.toLowerCase().split(/[\s\/,]+/);
+    for (const token of tokens) {
+        for (const [key, val] of Object.entries(dayMap)) {
+            if (token === key || token.startsWith(key)) {
+                if (!days.includes(val)) days.push(val);
+                break;
             }
         }
+    }
+    return days;
+}
 
-        try {
-            // Generate ICS content
-            const icsContent = ICSGenerator.generate(validEvents);
+function parseTimeRange(str) {
+    const normalized = str.replace(/a\.m\./gi, 'AM').replace(/p\.m\./gi, 'PM');
+    const match = normalized.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[-–]\s*(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!match) return { start: null, end: null };
+    return { start: normalizeTime(match[1], match[2], match[3]), end: normalizeTime(match[4], match[5], match[6]) };
+}
 
-            // Create blob and download
-            const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
+function normalizeTime(h, m, period) {
+    let hours = parseInt(h, 10);
+    const minutes = parseInt(m, 10);
+    if (period) {
+        period = period.toUpperCase();
+        if (period === 'PM' && hours !== 12) hours += 12;
+        if (period === 'AM' && hours === 12) hours = 0;
+    }
+    return { hours, minutes };
+}
 
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${currentFileName}.ics`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+function formatCourse(name) { return name.replace(/\s*[-–]\s*/, ' ').substring(0, 50); }
+function fmtTime(t) {
+    if (!t) return '?';
+    let h = t.hours; const m = String(t.minutes).padStart(2, '0');
+    const p = h >= 12 ? 'PM' : 'AM';
+    if (h > 12) h -= 12; if (h === 0) h = 12;
+    return `${h}:${m} ${p}`;
+}
+function fmtDate(d) { return d ? `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}` : '?'; }
+function esc(s) { const div = document.createElement('div'); div.textContent = s || ''; return div.innerHTML; }
 
-            URL.revokeObjectURL(url);
+function downloadICS() {
+    if (!parsedEvents.length) return;
+    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UBC Workday to Calendar//EN\r\nCALSCALE:GREGORIAN\r\n';
+    ics += 'BEGIN:VTIMEZONE\r\nTZID:America/Vancouver\r\n';
+    ics += 'BEGIN:DAYLIGHT\r\nTZOFFSETFROM:-0800\r\nTZOFFSETTO:-0700\r\nTZNAME:PDT\r\nDTSTART:19700308T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU\r\nEND:DAYLIGHT\r\n';
+    ics += 'BEGIN:STANDARD\r\nTZOFFSETFROM:-0700\r\nTZOFFSETTO:-0800\r\nTZNAME:PST\r\nDTSTART:19701101T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU\r\nEND:STANDARD\r\n';
+    ics += 'END:VTIMEZONE\r\n';
 
-        } catch (err) {
-            console.error('Error generating ICS:', err);
-            showError('Failed to generate calendar file. Please try again.');
+    for (const e of parsedEvents) {
+        const firstDate = findFirstOccurrence(e.startDate, e.days);
+        const dtstart = fmtICSDateTime(firstDate, e.startTime);
+        const dtend = fmtICSDateTime(firstDate, e.endTime);
+        const until = fmtICSUntil(e.endDate);
+        // Stable across downloads so re-importing updates events instead of duplicating them
+        const uid = `${dtstart}-${hashString([e.course, e.section, e.format, e.days.join(',')].join('|'))}@ubc-workday-to-calendar`;
+        let rrule = `FREQ=WEEKLY;BYDAY=${e.days.join(',')};UNTIL=${until}`;
+        if (e.isAlternate) rrule = `FREQ=WEEKLY;INTERVAL=2;BYDAY=${e.days.join(',')};UNTIL=${until}`;
+        const summary = e.format ? `${e.course} (${e.format})` : e.course;
+
+        ics += 'BEGIN:VEVENT\r\n';
+        ics += `UID:${uid}\r\n`;
+        ics += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
+        ics += `DTSTART;TZID=${TIMEZONE}:${dtstart}\r\n`;
+        ics += `DTEND;TZID=${TIMEZONE}:${dtend}\r\n`;
+        ics += `RRULE:${rrule}\r\n`;
+        ics += `SUMMARY:${escICS(summary)}\r\n`;
+        if (e.location) ics += `LOCATION:${escICS(e.location)}\r\n`;
+        if (e.instructor) ics += `DESCRIPTION:Instructor: ${escICS(e.instructor)}\r\n`;
+        ics += 'END:VEVENT\r\n';
+    }
+    ics += 'END:VCALENDAR\r\n';
+
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'ubc_schedule.ics'; a.click();
+    URL.revokeObjectURL(url);
+}
+
+function findFirstOccurrence(startDate, days) {
+    const dayNum = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+    const targetDays = days.map(d => dayNum[d]);
+    const date = new Date(startDate.year, startDate.month - 1, startDate.day);
+    for (let i = 0; i < 7; i++) {
+        if (targetDays.includes(date.getDay())) {
+            return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() };
         }
+        date.setDate(date.getDate() + 1);
     }
+    return startDate;
+}
 
-    // ==========================================
-    // Error Handling
-    // ==========================================
-
-    function showError(message) {
-        errorMessage.textContent = message;
-        errorSection.hidden = false;
-        previewSection.hidden = true;
-    }
-
-    // ==========================================
-    // State Management
-    // ==========================================
-
-    function resetState() {
-        currentEvents = [];
-        currentFileName = 'schedule';
-        fileInput.value = '';
-        fileInfo.hidden = true;
-        previewSection.hidden = true;
-        errorSection.hidden = true;
-        previewBody.innerHTML = '';
-
-        // Remove warning banner if exists
-        const banner = previewSection.querySelector('.warning-banner');
-        if (banner) banner.remove();
-    }
-});
+function fmtICSDateTime(date, time) {
+    return `${date.year}${String(date.month).padStart(2, '0')}${String(date.day).padStart(2, '0')}T${String(time.hours).padStart(2, '0')}${String(time.minutes).padStart(2, '0')}00`;
+}
+// 23:59:59 on the end date in Vancouver, as UTC (RFC 5545 requires UTC UNTIL when DTSTART has a TZID)
+function fmtICSUntil(date) {
+    const guess = Date.UTC(date.year, date.month - 1, date.day, 23, 59, 59);
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        timeZone: TIMEZONE, hourCycle: 'h23',
+        year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'
+    }).formatToParts(guess).map(part => [part.type, part.value]));
+    const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - guess;
+    return new Date(guess - offset).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+// FNV-1a, 32-bit hex
+function hashString(s) {
+    let h = 0x811c9dc5;
+    for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(16).padStart(8, '0');
+}
+function escICS(s) { return (s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }

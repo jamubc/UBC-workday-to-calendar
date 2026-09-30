@@ -1,13 +1,12 @@
-// Loads the inline <script> from index.html into a node vm with a stubbed
-// browser, so tests exercise the exact code the live page runs.
+// Loads js/app.js into a node vm with a stubbed browser, so tests exercise
+// the exact code the live page runs.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 // Students' browsers run in Vancouver time; pin it so DST bugs reproduce on any machine.
 process.env.TZ = 'America/Vancouver';
 
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-const inlineScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
+const appScript = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 
 function stubElement() {
     return {
@@ -40,7 +39,7 @@ export function loadPage() {
         Blob: class { constructor(parts) { downloads.push(parts.join('')); } },
         URL: { createObjectURL: () => 'blob:stub', revokeObjectURL() {} },
     });
-    vm.runInContext(inlineScript, context);
+    vm.runInContext(appScript, context);
     onLoad.forEach(fn => fn());
 
     // Runs the page's own addToCalendar() and returns the preview dates (YYYY-MM-DD).
