@@ -50,3 +50,12 @@ test('a non-text cell does not stop the other rows from parsing', async () => {
     assert.equal(events.length, 1);
     assert.match(events[0].course, /MATH_V 100/);
 });
+
+test('a meeting with no class dates between its start and end is skipped and reported', async () => {
+    // Mon Dec 1 to Wed Dec 3 has no Friday; an .ics would still show DTSTART on Dec 5.
+    const { status, events } = await loadPage().parse([row({
+        'Meeting Patterns': '2025-12-01 - 2025-12-03 | Fri | 9:30 a.m. - 11:00 a.m. | UBCV | IKB | Floor: 1 | Room: 182',
+    })]);
+    assert.equal(events.length, 0);
+    assert.match(status, /no class dates/i);
+});

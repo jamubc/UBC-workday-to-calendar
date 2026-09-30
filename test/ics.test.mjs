@@ -70,3 +70,22 @@ test('UNTIL uses UTC-7 for end dates after BC stopped changing clocks', () => {
     })]);
     assert.equal(untilOf(ics), '20261211T065959Z');
 });
+
+test('meetings that differ only by room still get distinct UIDs', async () => {
+    const page = loadPage();
+    const { events } = await page.parse([{
+        'Course Listing': 'CPSC_V 110 - X', 'Section': 'CPSC_V 110-101', 'Instructional Format': 'Lecture',
+        'Meeting Patterns': [
+            '2025-09-02 - 2025-12-04 | Tue | 9:30 a.m. - 11:00 a.m. | UBCV | IKB | Floor: 1 | Room: 182',
+            '2025-09-02 - 2025-12-04 | Tue | 9:30 a.m. - 11:00 a.m. | UBCV | DMP | Floor: 1 | Room: 110',
+        ].join('\n'),
+    }]);
+    const uids = field(page.downloadICS(events), 'UID');
+    assert.equal(uids.length, 2);
+    assert.equal(new Set(uids).size, 2);
+});
+
+test('alternate-week rules state Monday as the week start', () => {
+    const ics = loadPage().downloadICS([event({ isAlternate: true, days: ['SU', 'WE'] })]);
+    assert.match(field(ics, 'RRULE').at(-1), /;WKST=MO/);
+});

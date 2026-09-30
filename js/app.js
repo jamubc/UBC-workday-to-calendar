@@ -114,6 +114,11 @@ async function parseFile() {
             }
 
             for (const p of patterns) {
+                // Otherwise the .ics would still show a class on DTSTART, which RFC 5545 always counts
+                if (epochDay(findFirstOccurrence(p.startDate, p.days)) > epochDay(p.endDate)) {
+                    log(`Row ${i + 2}: Skipped a meeting with no class dates between ${fmtDate(p.startDate)} and ${fmtDate(p.endDate)}`);
+                    continue;
+                }
                 const event = {
                     course: formatCourse(courseListing),
                     section: section,
@@ -328,15 +333,20 @@ function downloadICS() {
     ics += 'BEGIN:STANDARD\r\nTZOFFSETFROM:-0700\r\nTZOFFSETTO:-0700\r\nTZNAME:MST\r\nDTSTART:20261101T020000\r\nEND:STANDARD\r\n';
     ics += 'END:VTIMEZONE\r\n';
 
+    const uidCounts = new Map();
     for (const e of parsedEvents) {
         const firstDate = findFirstOccurrence(e.startDate, e.days);
         const dtstart = fmtICSDateTime(firstDate, e.startTime);
         const dtend = fmtICSDateTime(firstDate, e.endTime);
         const until = fmtICSUntil(e.endDate);
-        // Stable across downloads so re-importing updates events instead of duplicating them
-        const uid = `${dtstart}-${hashString([e.course, e.section, e.format, e.days.join(',')].join('|'))}@ubc-workday-to-calendar`;
-        let rrule = `FREQ=WEEKLY;BYDAY=${e.days.join(',')};UNTIL=${until}`;
-        if (e.isAlternate) rrule = `FREQ=WEEKLY;INTERVAL=2;BYDAY=${e.days.join(',')};UNTIL=${until}`;
+        // Stable across downloads so re-importing updates events instead of duplicating them. Location and
+        // end date are left out so those changes update in place; meetings identical in every hashed field
+        // are numbered in file order
+        const uidBase = `${dtstart}-${hashString([e.course, e.section, e.format, e.days.join(','), e.isAlternate, fmtSlotTime(e.endTime)].join('|'))}`;
+        const uidCount = (uidCounts.get(uidBase) || 0) + 1;
+        uidCounts.set(uidBase, uidCount);
+        const uid = `${uidBase}${uidCount > 1 ? `-${uidCount}` : ''}@ubc-workday-to-calendar`;
+        const rrule = `FREQ=WEEKLY;${e.isAlternate ? 'INTERVAL=2;' : ''}BYDAY=${e.days.join(',')};WKST=MO;UNTIL=${until}`;
         const summary = e.format ? `${e.course} (${e.format})` : e.course;
 
         ics += 'BEGIN:VEVENT\r\n';
