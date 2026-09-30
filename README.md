@@ -16,11 +16,11 @@ Convert your UBC Workday schedule export (`.xlsx`) to an iCal file (`.ics`) that
    3. Next to 'Current Classes' click GEAR ICON
    4. Download To Excel
 
-2. **Upload the .xlsx file**
-   - Drag and drop or click to browse
+2. **Choose the .xlsx file**
+   - Click the file picker and select your export, then click **Parse File**
 
 3. **Download the .ics file**
-   - Preview your courses and click Download
+   - Check the parsed table and weekly preview, then click **Download .ics**
 
 4. **Import into your calendar**
    - Open the `.ics` file with your calendar app
@@ -28,10 +28,11 @@ Convert your UBC Workday schedule export (`.xlsx`) to an iCal file (`.ics`) that
 
 ## Features
 
-- ✅ **Client-side processing** — Your data never leaves your browser
-- ✅ **Recurring events** — Classes repeat on the correct days until term end
-- ✅ **Pacific time zone** — Correctly handles PDT/PST transitions
-- ✅ **Free & open source** — No accounts required
+- ✅ **Client-side processing:** your data never leaves your browser
+- ✅ **Recurring events:** classes repeat on the correct days until term end, including alternate-week labs
+- ✅ **Vancouver time:** handles PST/PDT and BC's move to permanent UTC-7 from November 2026
+- ✅ **Stable event IDs:** downloading again gives each class the same ID, so calendar apps can recognize events they already imported
+- ✅ **Free & open source:** no accounts required
 
 ## Development
 
@@ -44,7 +45,7 @@ python -m http.server 8000
 
 Then open http://localhost:8000 in your browser.
 
-Run the tests (Node 20+, no install needed):
+Run the tests (Node 22+, no install needed):
 
 ```bash
 npm test
@@ -57,7 +58,7 @@ npm test
 - [SheetJS](https://sheetjs.com/) for .xlsx parsing
 - RFC 5545 compliant .ics generation
 
-Both libraries are vendored in [`vendor/`](vendor/) and a Content-Security-Policy blocks all network requests, so the page cannot send your schedule anywhere.
+Both libraries are vendored in [`vendor/`](vendor/) and a Content-Security-Policy blocks requests to any other site, so the page cannot send your schedule anywhere.
 
 ## License
 

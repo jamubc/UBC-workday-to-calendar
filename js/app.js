@@ -339,9 +339,9 @@ function downloadICS() {
         const dtstart = fmtICSDateTime(firstDate, e.startTime);
         const dtend = fmtICSDateTime(firstDate, e.endTime);
         const until = fmtICSUntil(e.endDate);
-        // Stable across downloads so re-importing updates events instead of duplicating them. Location and
-        // end date are left out so those changes update in place; meetings identical in every hashed field
-        // are numbered in file order
+        // Stable across downloads so calendar apps can match re-imported events to ones they already have.
+        // Location and end date are left out so those changes keep the same ID; meetings identical in every
+        // hashed field are numbered in file order
         const uidBase = `${dtstart}-${hashString([e.course, e.section, e.format, e.days.join(','), e.isAlternate, fmtSlotTime(e.endTime)].join('|'))}`;
         const uidCount = (uidCounts.get(uidBase) || 0) + 1;
         uidCounts.set(uidBase, uidCount);
